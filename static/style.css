@@ -1,0 +1,58 @@
+body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+    margin: 50px;
+}
+
+#flashcard {
+    margin-top: 20px;
+}
+
+#answer {
+    width: 200px;
+    padding: 10px;
+    font-size: 16px;
+}
+
+#submit {
+    padding: 10px 20px;
+    font-size: 16px;
+}
+
+#feedback {
+    margin-top: 20px;
+    font-weight: bold;
+}
+
+#end {
+    padding: 10px 20px;
+    font-size: 16px;
+    margin-left: 10px;
+}
+
+#flashcard p {
+    font-size: 18px;
+}
+
+#table-selection {
+    text-align: center;
+    margin: 20px;
+}
+
+#checkboxes {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+#checkboxes label {
+    margin: 5px 10px;
+    font-size: 16px;
+}
+
+#start-button {
+    margin-top: 20px;
+    padding: 10px 20px;
+    font-size: 16px;
+}
+

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Flashcards PWA</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+<div id="app">
+    <h1>Flashcards</h1>
+    <img src="icons/logo-192x192.png" alt="Logo de l'application" id="app-logo">
+
+    <!-- Nouvelle section pour la sélection des tables -->
+    <div id="table-selection">
+        <h2>Sélectionnez les tables de multiplication :</h2>
+        <form id="table-form">
+            <div id="checkboxes">
+                <!-- Les cases à cocher seront générées dynamiquement -->
+            </div>
+            <button type="submit" id="start-button">Commencer</button>
+        </form>
+    </div>
+
+    <!-- Section des flashcards (cachée au départ) -->
+    <div id="flashcard" style="display: none;">
+        <p id="question">Chargement...</p>
+        <input type="text" id="answer" placeholder="Votre réponse">
+        <button id="submit">Valider</button>
+        <button id="end">Fin</button>
+        <p id="feedback"></p>
+        <p id="timer"></p>
+    </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
