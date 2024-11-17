@@ -165,7 +165,7 @@ async function submitAnswer() {
         currentCardIndex++;
 
         // Attendre 2 secondes avant d'afficher la prochaine carte
-        delayTimer = setTimeout(displayFlashcard, 2000);
+        delayTimer = setTimeout(displayFlashcard, 500);
     } else {
         // Afficher le message en français
         document.getElementById('feedback').innerText = `Veuillez répéter 10 fois : ${card.question} ${card.answer}`;
