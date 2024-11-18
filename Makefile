@@ -4,5 +4,5 @@ VERSION = 1.0.0-SNAPSHOT
 
 build:
 	#go test -v ./...
-	env go build -o bin/vic_multi cmd/main.go
+	env go build -o bin/flashcards cmd/main.go
 
