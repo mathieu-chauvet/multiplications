@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -109,6 +110,9 @@ func updateFlashcard(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+
+	slog.Info("Starting server")
+
 	err := loadFlashcards()
 	if err != nil {
 		panic(err)
