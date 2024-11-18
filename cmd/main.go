@@ -111,7 +111,7 @@ func updateFlashcard(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 
-	slog.Info("Starting server")
+	slog.Info("Starting server...")
 
 	err := loadFlashcards()
 	if err != nil {
