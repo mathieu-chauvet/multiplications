@@ -138,10 +138,10 @@ function handleTimeout() {
 
 // Fonction appelée lorsque l'utilisateur soumet une réponse
 async function submitAnswer() {
-    // Arrêter le timer
+    // Stop the timer
     clearInterval(timer);
 
-    // Vérifier si le quiz est terminé
+    // Check if the quiz is finished
     if (currentCardIndex >= flashcards.length) {
         return;
     }
@@ -149,13 +149,8 @@ async function submitAnswer() {
     const card = flashcards[currentCardIndex];
     const userAnswer = document.getElementById('answer').value.trim();
 
-    // Désactiver le champ de saisie et les boutons pendant le délai
-    document.getElementById('answer').disabled = true;
-    document.getElementById('submit').disabled = true;
-    document.getElementById('end').disabled = true;
-
-    // Calculer le temps de réponse
-    const responseTime = (Date.now() - questionStartTime) / 1000; // En secondes
+    // Calculate response time
+    const responseTime = (Date.now() - questionStartTime) / 1000; // In seconds
     responseTimes.push(responseTime);
 
     if (userAnswer.toLowerCase() === card.answer.toLowerCase()) {
@@ -164,21 +159,32 @@ async function submitAnswer() {
 
         currentCardIndex++;
 
-        // Attendre 2 secondes avant d'afficher la prochaine carte
-        delayTimer = setTimeout(displayFlashcard, 500);
+        // Small delay before showing the next card
+        setTimeout(() => {
+            displayFlashcard();
+        }, 500);
     } else {
-        // Afficher le message en français
+        // Show feedback for incorrect answers
         document.getElementById('feedback').innerText = `Veuillez répéter 10 fois : ${card.question} ${card.answer}`;
-        // Incrémenter times_wrong
         card.times_wrong = (card.times_wrong || 0) + 1;
         await updateFlashcard(card);
 
         currentCardIndex++;
 
-        // Attendre 10 secondes avant d'afficher la prochaine carte
-        delayTimer = setTimeout(displayFlashcard, 10000);
+        // Longer delay for incorrect answers
+        setTimeout(() => {
+            displayFlashcard();
+        }, 10000);
     }
+
+    // Re-enable the input field and refocus to keep the keyboard displayed
+    setTimeout(() => {
+        document.getElementById('answer').disabled = false; // Re-enable
+        document.getElementById('answer').value = ''; // Clear the input field
+        document.getElementById('answer').focus(); // Refocus the input
+    }, 100);
 }
+
 
 // Fonction pour terminer le quiz
 function endQuiz() {
@@ -286,3 +292,4 @@ if ('serviceWorker' in navigator) {
             console.error("L'enregistrement du Service Worker a échoué :", err);
         });
 }
+

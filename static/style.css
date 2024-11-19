@@ -1,58 +1,99 @@
+/* General Styles */
 body {
     font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+#app {
     text-align: center;
-    margin: 50px;
+    padding: 20px;
 }
 
-#flashcard {
-    margin-top: 20px;
-}
-
-#answer {
-    width: 200px;
-    padding: 10px;
-    font-size: 16px;
-}
-
-#submit {
-    padding: 10px 20px;
-    font-size: 16px;
-}
-
-#feedback {
-    margin-top: 20px;
-    font-weight: bold;
-}
-
-#end {
-    padding: 10px 20px;
-    font-size: 16px;
-    margin-left: 10px;
-}
-
-#flashcard p {
-    font-size: 18px;
+#app-logo {
+    width: 100px;
+    height: 100px;
 }
 
 #table-selection {
-    text-align: center;
-    margin: 20px;
+    margin: 20px auto;
+    max-width: 90%;
 }
 
 #checkboxes {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-}
-
-#checkboxes label {
-    margin: 5px 10px;
-    font-size: 16px;
+    gap: 10px;
 }
 
 #start-button {
-    margin-top: 20px;
     padding: 10px 20px;
-    font-size: 16px;
+    font-size: 1rem;
 }
 
+#flashcard {
+    margin-top: 20px;
+}
+
+input[type="text"] {
+    width: 80%;
+    max-width: 400px;
+    padding: 10px;
+    margin-bottom: 10px;
+    font-size: 1rem;
+}
+
+button {
+    padding: 10px 15px;
+    font-size: 1rem;
+    margin: 5px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    #app-logo {
+        width: 80px;
+        height: 80px;
+    }
+
+    #checkboxes {
+        gap: 5px;
+    }
+
+    input[type="text"] {
+        width: 100%;
+        font-size: 1rem;
+    }
+
+    button {
+        width: 100%;
+        font-size: 1rem;
+    }
+}
+
+img {
+    max-width: 100%;
+    height: auto;
+}
+
+#buy_me_a_coffee {
+    margin: 20px auto;
+    text-align: center;
+}
+
+#buy_me_a_coffee img {
+    max-width: 80%;
+    height: auto;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type="number"] {
+    -moz-appearance: textfield;
+}

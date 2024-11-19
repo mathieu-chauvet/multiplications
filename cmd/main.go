@@ -126,5 +126,8 @@ func main() {
 
 	port := 8080
 	println("Server is running on port", port)
-	http.ListenAndServe(":"+strconv.Itoa(port), nil)
+	err = http.ListenAndServe(":"+strconv.Itoa(port), nil)
+	if err != nil {
+		slog.Error("Error starting server", "error", err)
+	}
 }
