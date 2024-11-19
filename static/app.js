@@ -146,6 +146,12 @@ async function submitAnswer() {
         return;
     }
 
+    gtag('event', 'answer_submitted', {
+        'event_category': 'engagement',
+        'event_label': 'answer_submitted',
+        'value': 1
+    });
+
     const card = flashcards[currentCardIndex];
     const userAnswer = document.getElementById('answer').value.trim();
 
@@ -191,6 +197,12 @@ function endQuiz() {
     // Arrêter les timers
     clearInterval(timer);
     clearTimeout(delayTimer);
+
+    gtag('event', 'end_quiz', {
+        'event_category': 'engagement',
+        'event_label': 'end_quiz',
+        'value': 1
+    });
 
     showResults();
 }
