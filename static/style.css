@@ -34,6 +34,24 @@ body {
     font-size: 18px;
 }
 
+#user-bar {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    display: none; /* shown via JS when name present */
+    gap: 8px;
+    align-items: center;
+}
+
+#user-bar #user-name-display {
+    font-weight: bold;
+}
+
+#user-bar #logout-btn {
+    padding: 6px 10px;
+    font-size: 14px;
+}
+
 #table-selection {
     text-align: center;
     margin: 20px;

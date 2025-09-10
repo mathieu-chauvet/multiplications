@@ -8,7 +8,36 @@ let delayTimer; // Timer pour les délais entre les questions
 const TIME_LIMIT = 6000; // 6 secondes en millisecondes
 let responseTimes = []; // Stocke les temps de réponse
 let questionStartTime; // Enregistre l'heure de début de chaque question
-const MAX_TABLE = 10; // Nombre maximum de tables disponibles
+const MAX_TABLE = 12; // Nombre maximum de tables disponibles
+let selectedTablesChosen = []; // Stocke les tables sélectionnées pour l'affichage final
+
+// Helpers cookies
+function setCookie(name, value, days) {
+    const d = new Date();
+    d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+    const expires = "expires=" + d.toUTCString();
+    document.cookie = name + "=" + encodeURIComponent(value) + ";" + expires + ";path=/";
+}
+
+function getCookie(name) {
+    const cname = name + "=";
+    const decodedCookie = decodeURIComponent(document.cookie || "");
+    const ca = decodedCookie.split(';');
+    for (let i = 0; i < ca.length; i++) {
+        let c = ca[i];
+        while (c.charAt(0) === ' ') {
+            c = c.substring(1);
+        }
+        if (c.indexOf(cname) === 0) {
+            return c.substring(cname.length, c.length);
+        }
+    }
+    return "";
+}
+
+function deleteCookie(name) {
+    document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+}
 
 // Fonction pour générer les cases à cocher pour les tables
 function generateCheckboxes() {
@@ -209,16 +238,46 @@ function showResults() {
     const totalResponseTime = responseTimes.reduce((acc, val) => acc + val, 0);
     const meanResponseTime = responseTimes.length > 0 ? (totalResponseTime / responseTimes.length).toFixed(2) : 0;
 
+    const tablesText = selectedTablesChosen && selectedTablesChosen.length > 0
+        ? selectedTablesChosen.slice().sort((a,b)=>a-b).join(', ')
+        : 'aucune';
+
     document.getElementById('flashcard').innerHTML = `
-        <p>Vous avez obtenu ${score} bonnes réponses sur ${currentCardIndex}.</p>
+        <p>Vous avez obtenu ${score} bonnes réponses sur ${currentCardIndex}. Tables sélectionnées : ${tablesText}.</p>
         <p>Temps de réponse moyen : ${meanResponseTime} secondes</p>
     `;
+
+    // Envoi du résultat vers la feuille Google (si configurée)
+    const playerName = getCookie('playerName') || '';
+    try {
+        sendResultToSheet(playerName, score, currentCardIndex, selectedTablesChosen);
+    } catch (e) {
+        console.warn('Envoi du résultat non effectué:', e);
+    }
 }
 
 // Fonction pour mettre à jour une flashcard (placeholder pour compatibilité)
 async function updateFlashcard(card) {
     // Si vous avez une logique pour mettre à jour la flashcard sur le serveur, implémentez-la ici
     // Pour l'instant, cette fonction est vide car nous générons les flashcards côté client
+}
+
+// Envoi du résultat au backend (qui poste ensuite vers Google Sheets)
+function sendResultToSheet(name, score, total, tables) {
+    try {
+        return fetch('/api/result', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name || '', score: Number(score) || 0, total: Number(total) || 0, tables: Array.isArray(tables) ? tables : [] })
+        }).then(res => {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json().catch(() => ({}));
+        }).catch(err => {
+            console.warn('Erreur lors de l\'envoi au backend:', err);
+        });
+    } catch (e) {
+        console.warn('Exception sendResultToSheet:', e);
+    }
 }
 
 // Gestionnaire pour la touche "Entrée" dans le champ de réponse
@@ -231,6 +290,59 @@ const answerKeyUpHandler = function(event) {
 // Générer les cases à cocher lors du chargement de la page
 window.onload = function() {
     generateCheckboxes();
+
+    // Gestion du nom via cookie
+    const nameSection = document.getElementById('name-section');
+    const tableSelection = document.getElementById('table-selection');
+    const userBar = document.getElementById('user-bar');
+    const userNameDisplay = document.getElementById('user-name-display');
+    const logoutBtn = document.getElementById('logout-btn');
+    const existingName = getCookie('playerName');
+
+    if (!existingName) {
+        // Afficher la demande de nom et masquer la sélection des tables
+        if (nameSection) nameSection.style.display = 'block';
+        if (tableSelection) tableSelection.style.display = 'none';
+        if (userBar) userBar.style.display = 'none';
+    } else {
+        if (nameSection) nameSection.style.display = 'none';
+        if (tableSelection) tableSelection.style.display = 'block';
+        if (userBar) userBar.style.display = 'flex';
+        if (userNameDisplay) userNameDisplay.textContent = existingName;
+    }
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', disconnectUser);
+    }
+
+    const nameForm = document.getElementById('name-form');
+    if (nameForm) {
+        nameForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const input = document.getElementById('player-name');
+            const value = (input && input.value) ? input.value.trim() : '';
+            if (!value) {
+                alert('Veuillez entrer votre nom.');
+                if (input) input.focus();
+                return;
+            }
+            setCookie('playerName', value, 365);
+            if (nameSection) nameSection.style.display = 'none';
+            if (tableSelection) tableSelection.style.display = 'block';
+            if (userBar) userBar.style.display = 'flex';
+            if (userNameDisplay) userNameDisplay.textContent = value;
+        });
+    }
+
+    // Bouton pour tout désélectionner au début
+    const unselectBtn = document.getElementById('unselect-all');
+    if (unselectBtn) {
+        unselectBtn.addEventListener('click', function() {
+            const checkboxes = document.querySelectorAll('input[name="tables"]');
+            checkboxes.forEach(cb => cb.checked = false);
+        });
+    }
+
     // Ne pas charger les flashcards avant que l'utilisateur ait choisi les tables
     // loadFlashcards(); // Supprimer ou commenter cette ligne si elle existe
 };
@@ -245,6 +357,9 @@ document.getElementById('table-form').addEventListener('submit', function(event)
     checkboxes.forEach((checkbox) => {
         selectedTables.push(parseInt(checkbox.value));
     });
+
+    // Conserver pour le message de score final
+    selectedTablesChosen = selectedTables.slice();
 
     if (selectedTables.length === 0) {
         alert("Veuillez sélectionner au moins une table de multiplication.");
@@ -274,6 +389,34 @@ async function loadFlashcards(selectedTables) {
     document.getElementById('end').addEventListener('click', endQuiz);
 
     displayFlashcard();
+}
+
+function disconnectUser() {
+    // Stop any running timers
+    clearInterval(timer);
+    clearTimeout(delayTimer);
+
+    // Reset in-memory state
+    flashcards = [];
+    currentCardIndex = 0;
+    score = 0;
+    responseTimes = [];
+
+    // Hide quiz UI and table selection; show name prompt
+    const flashcardDiv = document.getElementById('flashcard');
+    const tableSelection = document.getElementById('table-selection');
+    const nameSection = document.getElementById('name-section');
+    const userBar = document.getElementById('user-bar');
+    const nameInput = document.getElementById('player-name');
+
+    if (flashcardDiv) flashcardDiv.style.display = 'none';
+    if (tableSelection) tableSelection.style.display = 'none';
+    if (nameSection) nameSection.style.display = 'block';
+    if (userBar) userBar.style.display = 'none';
+    if (nameInput) nameInput.value = '';
+
+    // Clear the cookie
+    deleteCookie('playerName');
 }
 
 // Enregistrer le service worker

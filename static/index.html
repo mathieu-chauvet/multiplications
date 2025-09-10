@@ -8,17 +8,36 @@
 </head>
 <body>
 <div id="app">
+    <div id="user-bar" style="display: none;">
+        <span id="user-name-display"></span>
+        <button type="button" id="logout-btn" title="Se déconnecter">Se déconnecter</button>
+    </div>
     <h1>Flashcards</h1>
     <img src="icons/logo-192x192.png" alt="Logo de l'application" id="app-logo">
+
+    <!-- Section pour saisir le nom (affichée si le cookie est absent) -->
+    <div id="name-section" style="display: none;">
+        <h2>Entrez votre nom :</h2>
+        <form id="name-form">
+            <input type="text" id="player-name" name="player-name" placeholder="Votre nom" required>
+            <button type="submit" id="save-name">Enregistrer</button>
+        </form>
+    </div>
 
     <!-- Nouvelle section pour la sélection des tables -->
     <div id="table-selection">
         <h2>Sélectionnez les tables de multiplication :</h2>
         <form id="table-form">
+            <!-- Bouton placé juste sous le titre, avant les options -->
+            <div class="table-actions top-actions">
+                <button type="button" id="unselect-all">Tout désélectionner</button>
+            </div>
             <div id="checkboxes">
                 <!-- Les cases à cocher seront générées dynamiquement -->
             </div>
-            <button type="submit" id="start-button">Commencer</button>
+            <div class="table-actions">
+                <button type="submit" id="start-button">Commencer</button>
+            </div>
         </form>
     </div>
 
@@ -32,6 +51,11 @@
         <p id="timer"></p>
     </div>
 </div>
+<script>
+// Configure this with your Google Apps Script Web App URL that appends to your Sheet
+// Example: window.SHEETS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycb.../exec";
+window.SHEETS_WEBHOOK_URL = "";
+</script>
 <script src="app.js"></script>
 <div id="buy_me_a_coffee">
     <a href="https://buymeacoffee.com/mathieuchauvet" target="_blank">
