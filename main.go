@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -198,8 +199,22 @@ func main() {
 		panic(err)
 	}
 
-	fs := http.FileServer(http.FS(staticFiles))
-	http.Handle("/", http.StripPrefix("/", fs))
+	// Serve embedded static files from the "static" subdirectory at /static/
+	sub, err2 := fs.Sub(staticFiles, "static")
+	if err2 != nil {
+		panic(err2)
+	}
+	staticHandler := http.FileServer(http.FS(sub))
+	http.Handle("/static/", http.StripPrefix("/static/", staticHandler))
+
+	// Redirect root to /static/
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/static/", http.StatusFound)
+			return
+		}
+		http.NotFound(w, r)
+	})
 
 	http.HandleFunc("/api/flashcards", getFlashcards)
 	http.HandleFunc("/api/update", updateFlashcard)
