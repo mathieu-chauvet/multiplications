@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -188,14 +189,17 @@ func postResult(w http.ResponseWriter, r *http.Request) {
 	slog.Info("Successfully posted to google sheets", "payload", string(buf))
 }
 
+//go:embed static/*
+var staticFiles embed.FS
+
 func main() {
 	err := loadFlashcards()
 	if err != nil {
 		panic(err)
 	}
 
-	fs := http.FileServer(http.Dir("./static"))
-	http.Handle("/", fs)
+	fs := http.FileServer(http.FS(staticFiles))
+	http.Handle("/", http.StripPrefix("/", fs))
 
 	http.HandleFunc("/api/flashcards", getFlashcards)
 	http.HandleFunc("/api/update", updateFlashcard)
