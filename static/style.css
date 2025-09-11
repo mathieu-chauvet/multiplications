@@ -74,3 +74,8 @@ body {
     font-size: 16px;
 }
 
+/* Add spacing above the Buy Me A Coffee button */
+#buy_me_a_coffee {
+    margin-top: 24px;
+}
+
