@@ -8,3 +8,6 @@ build:
 
 push_to_clever:
 	git push clever main:master --force
+
+air:
+	air

@@ -26,8 +26,12 @@
 
     <!-- Nouvelle section pour la sélection des tables -->
     <div id="table-selection">
-        <h2>Sélectionnez les tables de multiplication :</h2>
+        <h2 id="selection-title">Sélectionnez les tables :</h2>
         <form id="table-form">
+            <div class="mode-selector">
+                <label><input type="radio" name="mode" id="mode-mul" value="mul" checked> Multiplications</label>
+                <label><input type="radio" name="mode" id="mode-add" value="add"> Additions (1 à 10)</label>
+            </div>
             <!-- Bouton placé juste sous le titre, avant les options -->
             <div class="table-actions top-actions">
                 <button type="button" id="unselect-all">Tout désélectionner</button>

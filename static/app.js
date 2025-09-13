@@ -8,7 +8,8 @@ let delayTimer; // Timer pour les délais entre les questions
 const TIME_LIMIT = 6000; // 6 secondes en millisecondes
 let responseTimes = []; // Stocke les temps de réponse
 let questionStartTime; // Enregistre l'heure de début de chaque question
-const MAX_TABLE = 12; // Nombre maximum de tables disponibles
+let MAX_TABLE = 12; // Nombre maximum de tables disponibles (12 pour multiplications, 10 pour additions)
+let exerciseMode = 'mul'; // 'mul' ou 'add'
 let selectedTablesChosen = []; // Stocke les tables sélectionnées pour l'affichage final
 
 // Helpers cookies
@@ -42,6 +43,10 @@ function deleteCookie(name) {
 // Fonction pour générer les cases à cocher pour les tables
 function generateCheckboxes() {
     const checkboxesDiv = document.getElementById('checkboxes');
+    if (!checkboxesDiv) return;
+    // Effacer
+    checkboxesDiv.innerHTML = '';
+
     for (let i = 1; i <= MAX_TABLE; i++) {
         const label = document.createElement('label');
         label.htmlFor = `table-${i}`;
@@ -64,8 +69,15 @@ function generateFlashcards(selectedTables) {
     const flashcards = [];
     for (let i = 1; i <= 10; i++) {
         selectedTables.forEach((table) => {
-            const question = `${table} x ${i} = ?`;
-            const answer = (table * i).toString();
+            let question;
+            let answer;
+            if (exerciseMode === 'add') {
+                question = `${table} + ${i} = ?`;
+                answer = (table + i).toString();
+            } else {
+                question = `${table} x ${i} = ?`;
+                answer = (table * i).toString();
+            }
             const flashcard = {
                 question: question,
                 answer: answer,
@@ -236,7 +248,8 @@ function showResults() {
 
     // Calculer le temps de réponse moyen
     const totalResponseTime = responseTimes.reduce((acc, val) => acc + val, 0);
-    const meanResponseTime = responseTimes.length > 0 ? (totalResponseTime / responseTimes.length).toFixed(2) : 0;
+    const meanResponseTimeSec = responseTimes.length > 0 ? (totalResponseTime / responseTimes.length) : 0;
+    const meanResponseTimeText = meanResponseTimeSec.toFixed(2);
 
     const tablesText = selectedTablesChosen && selectedTablesChosen.length > 0
         ? selectedTablesChosen.slice().sort((a,b)=>a-b).join(', ')
@@ -244,13 +257,13 @@ function showResults() {
 
     document.getElementById('flashcard').innerHTML = `
         <p>Vous avez obtenu ${score} bonnes réponses sur ${currentCardIndex}. Tables sélectionnées : ${tablesText}.</p>
-        <p>Temps de réponse moyen : ${meanResponseTime} secondes</p>
+        <p>Temps de réponse moyen : ${meanResponseTimeText} secondes</p>
     `;
 
     // Envoi du résultat vers la feuille Google (si configurée)
     const playerName = getCookie('playerName') || '';
     try {
-        sendResultToSheet(playerName, score, currentCardIndex, selectedTablesChosen);
+        sendResultToSheet(playerName, score, currentCardIndex, selectedTablesChosen, meanResponseTimeSec);
     } catch (e) {
         console.warn('Envoi du résultat non effectué:', e);
     }
@@ -263,12 +276,19 @@ async function updateFlashcard(card) {
 }
 
 // Envoi du résultat au backend (qui poste ensuite vers Google Sheets)
-function sendResultToSheet(name, score, total, tables) {
+function sendResultToSheet(name, score, total, tables, meanTimeSeconds) {
     try {
         return fetch('/api/result', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: name || '', score: Number(score) || 0, total: Number(total) || 0, tables: Array.isArray(tables) ? tables : [] })
+            body: JSON.stringify({
+                name: name || '',
+                score: Number(score) || 0,
+                total: Number(total) || 0,
+                tables: Array.isArray(tables) ? tables : [],
+                exercise_type: exerciseMode || 'mul',
+                mean_time_seconds: Number.isFinite(meanTimeSeconds) ? meanTimeSeconds : 0
+            })
         }).then(res => {
             if (!res.ok) throw new Error('HTTP ' + res.status);
             return res.json().catch(() => ({}));
@@ -287,9 +307,22 @@ const answerKeyUpHandler = function(event) {
     }
 };
 
+// Met à jour le titre et le nombre de tables selon le mode
+function updateModeUI() {
+    const title = document.getElementById('selection-title');
+    if (exerciseMode === 'add') {
+        MAX_TABLE = 10;
+        if (title) title.textContent = 'Sélectionnez les tables d\'additions (1 à 10) :';
+    } else {
+        MAX_TABLE = 12;
+        if (title) title.textContent = 'Sélectionnez les tables de multiplications :';
+    }
+    generateCheckboxes();
+}
+
 // Générer les cases à cocher lors du chargement de la page
 window.onload = function() {
-    generateCheckboxes();
+    updateModeUI();
 
     // Gestion du nom via cookie
     const nameSection = document.getElementById('name-section');
@@ -314,6 +347,16 @@ window.onload = function() {
     if (logoutBtn) {
         logoutBtn.addEventListener('click', disconnectUser);
     }
+
+    // Radio mode
+    const modeMul = document.getElementById('mode-mul');
+    const modeAdd = document.getElementById('mode-add');
+    if (modeMul) modeMul.addEventListener('change', function() {
+        if (this.checked) { exerciseMode = 'mul'; updateModeUI(); }
+    });
+    if (modeAdd) modeAdd.addEventListener('change', function() {
+        if (this.checked) { exerciseMode = 'add'; updateModeUI(); }
+    });
 
     const nameForm = document.getElementById('name-form');
     if (nameForm) {
@@ -362,7 +405,7 @@ document.getElementById('table-form').addEventListener('submit', function(event)
     selectedTablesChosen = selectedTables.slice();
 
     if (selectedTables.length === 0) {
-        alert("Veuillez sélectionner au moins une table de multiplication.");
+        alert("Veuillez sélectionner au moins une table.");
         return;
     }
 

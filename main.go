@@ -116,19 +116,23 @@ func updateFlashcard(w http.ResponseWriter, r *http.Request) {
 // Result handling for posting to Google Sheets via backend
 // Request payload from frontend
 type resultRequest struct {
-	Name   string `json:"name"`
-	Score  int    `json:"score"`
-	Total  int    `json:"total"`
-	Tables []int  `json:"tables,omitempty"`
+	Name            string  `json:"name"`
+	Score           int     `json:"score"`
+	Total           int     `json:"total"`
+	Tables          []int   `json:"tables,omitempty"`
+	ExerciseType    string  `json:"exercise_type,omitempty"`
+	MeanTimeSeconds float64 `json:"mean_time_seconds,omitempty"`
 }
 
 // Payload forwarded to Google Apps Script (you can adapt to your script needs)
 type sheetPayload struct {
-	Date   string `json:"date"`
-	Name   string `json:"name"`
-	Score  int    `json:"score"`
-	Total  int    `json:"total"`
-	Tables []int  `json:"tables,omitempty"`
+	Date            string  `json:"date"`
+	Name            string  `json:"name"`
+	Score           int     `json:"score"`
+	Total           int     `json:"total"`
+	Tables          []int   `json:"tables,omitempty"`
+	ExerciseType    string  `json:"exercise_type,omitempty"`
+	MeanTimeSeconds float64 `json:"mean_time_seconds,omitempty"`
 }
 
 func postResult(w http.ResponseWriter, r *http.Request) {
@@ -158,11 +162,13 @@ func postResult(w http.ResponseWriter, r *http.Request) {
 	}
 
 	payload := sheetPayload{
-		Date:   time.Now().Format(time.RFC3339),
-		Name:   name,
-		Score:  req.Score,
-		Total:  req.Total,
-		Tables: req.Tables,
+		Date:            time.Now().Format(time.RFC3339),
+		Name:            name,
+		Score:           req.Score,
+		Total:           req.Total,
+		Tables:          req.Tables,
+		ExerciseType:    req.ExerciseType,
+		MeanTimeSeconds: req.MeanTimeSeconds,
 	}
 	buf, err := json.Marshal(payload)
 	if err != nil {
