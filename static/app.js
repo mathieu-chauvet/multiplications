@@ -472,3 +472,54 @@ if ('serviceWorker' in navigator) {
             console.error("L'enregistrement du Service Worker a échoué :", err);
         });
 }
+
+
+// Envoi des résultats lors de la fermeture/rafraîchissement de la page
+(function setupBeforeUnload(){
+    function computeMeanTime() {
+        if (Array.isArray(responseTimes) && responseTimes.length > 0) {
+            const total = responseTimes.reduce((a,b)=>a+b,0);
+            return total / responseTimes.length;
+        }
+        return 0;
+    }
+    function sendPartialResult() {
+        try {
+            // Ne rien envoyer si le quiz n'a pas commencé ou est terminé
+            if (!Array.isArray(flashcards) || flashcards.length === 0) return;
+            if (currentCardIndex <= 0) return;
+            if (currentCardIndex >= flashcards.length) return;
+
+            const name = getCookie('playerName') || '';
+            if (!name) return;
+
+            const meanTime = computeMeanTime();
+            const payload = {
+                name: name,
+                score: Number(score) || 0,
+                total: Number(currentCardIndex) || 0,
+                tables: Array.isArray(selectedTablesChosen) ? selectedTablesChosen : [],
+                exercise_type: exerciseMode || 'mul',
+                mean_time_seconds: Number.isFinite(meanTime) ? meanTime : 0
+            };
+            const url = '/api/result';
+            const json = JSON.stringify(payload);
+
+            if (navigator.sendBeacon) {
+                const blob = new Blob([json], { type: 'application/json' });
+                navigator.sendBeacon(url, blob);
+            } else {
+                // Fallback pour anciens navigateurs
+                fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: json,
+                    keepalive: true
+                }).catch(() => {});
+            }
+        } catch (e) {
+            console.warn('beforeunload send error', e);
+        }
+    }
+    window.addEventListener('beforeunload', sendPartialResult);
+})();
