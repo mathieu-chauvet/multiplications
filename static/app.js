@@ -97,6 +97,25 @@ function shuffleFlashcards() {
     }
 }
 
+// Fonction utilitaire pour tenter d'afficher le clavier logiciel sur mobile
+function ensureKeyboardOpen(inputEl) {
+    if (!inputEl) return;
+    try {
+        // Astuces connues pour iOS/Android afin d'ouvrir le clavier après un focus programmatique
+        inputEl.focus({ preventScroll: true });
+        inputEl.click();
+        // Sur certains navigateurs mobiles, un léger délai puis un second focus aide
+        setTimeout(() => {
+            // Forcer le curseur à la fin si possible
+            const val = inputEl.value || '';
+            try { inputEl.setSelectionRange(val.length, val.length); } catch (_) {}
+            inputEl.focus({ preventScroll: true });
+        }, 50);
+    } catch (_) {
+        // no-op
+    }
+}
+
 // Fonction pour afficher une flashcard
 function displayFlashcard() {
     if (currentCardIndex >= flashcards.length) {
@@ -115,7 +134,9 @@ function displayFlashcard() {
     document.getElementById('end').disabled = false;
 
     // Mettre le focus sur le champ de saisie APRÈS l'avoir activé
-    document.getElementById('answer').focus();
+    const answerInput = document.getElementById('answer');
+    answerInput.focus();
+    ensureKeyboardOpen(answerInput);
 
     // Enregistrer l'heure de début
     questionStartTime = Date.now();
