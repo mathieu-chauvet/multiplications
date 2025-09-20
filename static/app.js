@@ -74,6 +74,15 @@ function generateFlashcards(selectedTables) {
             if (exerciseMode === 'add') {
                 question = `${table} + ${i} = ?`;
                 answer = (table + i).toString();
+            } else if (exerciseMode === 'sub') {
+                // Générer des soustractions sans résultat négatif
+                if (i <= table) {
+                    question = `${table} - ${i} = ?`;
+                    answer = (table - i).toString();
+                } else {
+                    question = `${i} - ${table} = ?`;
+                    answer = (i - table).toString();
+                }
             } else {
                 question = `${table} x ${i} = ?`;
                 answer = (table * i).toString();
@@ -334,6 +343,9 @@ function updateModeUI() {
     if (exerciseMode === 'add') {
         MAX_TABLE = 10;
         if (title) title.textContent = 'Sélectionnez les tables d\'additions (1 à 10) :';
+    } else if (exerciseMode === 'sub') {
+        MAX_TABLE = 10;
+        if (title) title.textContent = 'Sélectionnez les tables de soustractions (1 à 10) :';
     } else {
         MAX_TABLE = 12;
         if (title) title.textContent = 'Sélectionnez les tables de multiplications :';
@@ -372,11 +384,15 @@ window.onload = function() {
     // Radio mode
     const modeMul = document.getElementById('mode-mul');
     const modeAdd = document.getElementById('mode-add');
+    const modeSub = document.getElementById('mode-sub');
     if (modeMul) modeMul.addEventListener('change', function() {
         if (this.checked) { exerciseMode = 'mul'; updateModeUI(); }
     });
     if (modeAdd) modeAdd.addEventListener('change', function() {
         if (this.checked) { exerciseMode = 'add'; updateModeUI(); }
+    });
+    if (modeSub) modeSub.addEventListener('change', function() {
+        if (this.checked) { exerciseMode = 'sub'; updateModeUI(); }
     });
 
     const nameForm = document.getElementById('name-form');
