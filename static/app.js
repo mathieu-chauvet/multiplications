@@ -14,6 +14,7 @@ let exerciseMode = 'mul'; // 'mul', 'add', 'sub', ou 'fact'
 let selectedTablesChosen = []; // Stocke les tables sélectionnées pour l'affichage final
 let userErrors = []; // Erreurs de l'utilisateur récupérées du serveur
 let resultSent = false; // Empêche l'envoi multiple des résultats
+let userBestScore = { score: 0, total: 0 }; // Meilleur score précédent de l'utilisateur
 
 // Helpers cookies
 function setCookie(name, value, days) {
@@ -57,6 +58,59 @@ async function fetchUserErrors() {
         console.warn('Erreur lors de la récupération des erreurs utilisateur:', e);
     }
     return [];
+}
+
+// Récupère le meilleur score de l'utilisateur
+async function fetchUserBestScore() {
+    const playerName = getCookie('playerName');
+    if (!playerName) return { score: 0, total: 0 };
+
+    try {
+        const response = await fetch(`/api/user-best?name=${encodeURIComponent(playerName)}&type=${encodeURIComponent(exerciseMode)}`);
+        if (response.ok) {
+            return await response.json();
+        }
+    } catch (e) {
+        console.warn('Erreur lors de la récupération du meilleur score:', e);
+    }
+    return { score: 0, total: 0 };
+}
+
+// Affiche la célébration
+function showCelebration(isPerfect, isNewRecord) {
+    console.log('showCelebration called', { isPerfect, isNewRecord });
+    const overlay = document.getElementById('celebration-overlay');
+    const message = document.getElementById('celebration-message');
+    const gif = document.getElementById('celebration-gif');
+    const subtitle = document.getElementById('celebration-subtitle');
+    const closeBtn = document.getElementById('celebration-close');
+
+    console.log('Elements found:', { overlay: !!overlay, message: !!message, gif: !!gif, subtitle: !!subtitle, closeBtn: !!closeBtn });
+
+    message.textContent = getRandomCongratsMessage();
+    gif.src = getRandomCelebrationGif();
+
+    if (isPerfect) {
+        subtitle.textContent = "SCORE PARFAIT ! Tu as tout bon !";
+    } else if (isNewRecord) {
+        subtitle.textContent = "NOUVEAU RECORD PERSONNEL !";
+    }
+
+    overlay.style.display = 'flex';
+
+    // Fermer la célébration
+    const closeHandler = function() {
+        overlay.style.display = 'none';
+        closeBtn.removeEventListener('click', closeHandler);
+    };
+    closeBtn.addEventListener('click', closeHandler);
+
+    // Fermer aussi en cliquant en dehors
+    overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) {
+            overlay.style.display = 'none';
+        }
+    });
 }
 
 // Enregistre une erreur pour l'utilisateur
@@ -510,6 +564,20 @@ function showResults() {
             console.warn('Envoi du résultat non effectué:', e);
         }
     }
+
+    // Vérifier si c'est un score parfait ou un nouveau record
+    const isPerfect = score === currentCardIndex && currentCardIndex > 0;
+    const currentRatio = currentCardIndex > 0 ? score / currentCardIndex : 0;
+    const previousRatio = userBestScore.total > 0 ? userBestScore.score / userBestScore.total : 0;
+    const isNewRecord = currentRatio > previousRatio && currentCardIndex > 0;
+
+    console.log('Celebration check:', { score, currentCardIndex, isPerfect, currentRatio, previousRatio, isNewRecord, userBestScore });
+
+    // Afficher la célébration si score parfait ou nouveau record
+    if (isPerfect || isNewRecord) {
+        console.log('Showing celebration!');
+        showCelebration(isPerfect, isNewRecord);
+    }
 }
 
 // Envoi du résultat au backend (qui poste ensuite vers Google Sheets)
@@ -555,7 +623,7 @@ function updateModeUI() {
         if (title) title.textContent = 'Sélectionnez les tables de soustractions (1 à 10) :';
     } else if (exerciseMode === 'fact') {
         MAX_TABLE = 12;
-        if (title) title.textContent = 'Sélectionnez les tables de factorisations :';
+        if (title) title.textContent = 'Exo Mama - Sélectionnez les tables :';
     } else {
         MAX_TABLE = 12;
         if (title) title.textContent = 'Sélectionnez les tables de multiplications :';
@@ -670,8 +738,9 @@ document.getElementById('table-form').addEventListener('submit', function(event)
 
 // Fonction pour charger les flashcards en fonction des tables sélectionnées
 async function loadFlashcards(selectedTables) {
-    // Récupérer les erreurs de l'utilisateur
+    // Récupérer les erreurs de l'utilisateur et le meilleur score précédent
     userErrors = await fetchUserErrors();
+    userBestScore = await fetchUserBestScore();
 
     // Générer toutes les flashcards possibles
     const allFlashcards = generateFlashcards(selectedTables);

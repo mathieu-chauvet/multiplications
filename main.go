@@ -181,6 +181,43 @@ func getUserErrors(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(errors)
 }
 
+// GET /api/user-best?name=X&type=Y - Returns user's best score for an exercise type
+type BestScore struct {
+	Score int `json:"score"`
+	Total int `json:"total"`
+}
+
+func getUserBestScore(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	exerciseType := strings.TrimSpace(r.URL.Query().Get("type"))
+
+	if name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	if exerciseType == "" {
+		exerciseType = "mul"
+	}
+
+	var best BestScore
+	err := db.QueryRow(`
+		SELECT score, total
+		FROM user_results
+		WHERE user_name = ? AND exercise_type = ? AND total > 0
+		ORDER BY (CAST(score AS REAL) / total) DESC, score DESC
+		LIMIT 1
+	`, name, exerciseType).Scan(&best.Score, &best.Total)
+
+	if err != nil {
+		// No previous score found
+		best.Score = 0
+		best.Total = 0
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(best)
+}
+
 // POST /api/user-error - Record an error for a user
 type userErrorRequest struct {
 	Name         string `json:"name"`
@@ -367,6 +404,7 @@ func main() {
 
 	http.HandleFunc("/api/flashcards", getFlashcards)
 	http.HandleFunc("/api/user-errors", getUserErrors)
+	http.HandleFunc("/api/user-best", getUserBestScore)
 	http.HandleFunc("/api/user-error", postUserError)
 	http.HandleFunc("/api/result", postResult)
 
