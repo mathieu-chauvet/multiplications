@@ -1,1 +1,5 @@
 /bin/
+/tmp/build-errors.log
+/flashCards
+/flashcards.db
+/tmp/main
