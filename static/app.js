@@ -6,11 +6,14 @@ let score = 0;
 let timer; // Timer pour le compte à rebours
 let delayTimer; // Timer pour les délais entre les questions
 const TIME_LIMIT = 6000; // 6 secondes en millisecondes
+const MAX_OPERATIONS = 40; // Nombre maximum d'opérations par exercice
 let responseTimes = []; // Stocke les temps de réponse
 let questionStartTime; // Enregistre l'heure de début de chaque question
 let MAX_TABLE = 12; // Nombre maximum de tables disponibles (12 pour multiplications, 10 pour additions)
-let exerciseMode = 'mul'; // 'mul' ou 'add'
+let exerciseMode = 'mul'; // 'mul', 'add', 'sub', ou 'fact'
 let selectedTablesChosen = []; // Stocke les tables sélectionnées pour l'affichage final
+let userErrors = []; // Erreurs de l'utilisateur récupérées du serveur
+let resultSent = false; // Empêche l'envoi multiple des résultats
 
 // Helpers cookies
 function setCookie(name, value, days) {
@@ -40,6 +43,77 @@ function deleteCookie(name) {
     document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
 }
 
+// Récupère les erreurs de l'utilisateur depuis le serveur
+async function fetchUserErrors() {
+    const playerName = getCookie('playerName');
+    if (!playerName) return [];
+
+    try {
+        const response = await fetch(`/api/user-errors?name=${encodeURIComponent(playerName)}&type=${encodeURIComponent(exerciseMode)}`);
+        if (response.ok) {
+            return await response.json();
+        }
+    } catch (e) {
+        console.warn('Erreur lors de la récupération des erreurs utilisateur:', e);
+    }
+    return [];
+}
+
+// Enregistre une erreur pour l'utilisateur
+async function recordUserError(question) {
+    const playerName = getCookie('playerName');
+    if (!playerName) return;
+
+    try {
+        await fetch('/api/user-error', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: playerName,
+                exercise_type: exerciseMode,
+                question: question
+            })
+        });
+    } catch (e) {
+        console.warn('Erreur lors de l\'enregistrement de l\'erreur:', e);
+    }
+}
+
+// Sélection pondérée des flashcards (les erreurs ont plus de poids)
+function selectWeightedFlashcards(allCards, errors, count) {
+    if (allCards.length === 0) return [];
+    if (allCards.length <= count) return allCards;
+
+    // Créer une map des erreurs par question
+    const errorMap = new Map(errors.map(e => [e.question, e.error_count]));
+
+    // Assigner des poids: erreurs ont 2x le poids par error_count (max 5)
+    const weighted = allCards.map(card => ({
+        card,
+        weight: errorMap.has(card.question)
+            ? Math.min(2 * errorMap.get(card.question), 5)
+            : 1
+    }));
+
+    // Sélection aléatoire pondérée sans remplacement
+    const selected = [];
+    while (selected.length < count && weighted.length > 0) {
+        const totalWeight = weighted.reduce((sum, w) => sum + w.weight, 0);
+        let random = Math.random() * totalWeight;
+
+        for (let i = 0; i < weighted.length; i++) {
+            random -= weighted[i].weight;
+            if (random <= 0) {
+                selected.push(weighted[i].card);
+                weighted.splice(i, 1);
+                break;
+            }
+        }
+    }
+
+    return selected;
+}
+
 // Fonction pour générer les cases à cocher pour les tables
 function generateCheckboxes() {
     const checkboxesDiv = document.getElementById('checkboxes');
@@ -67,33 +141,66 @@ function generateCheckboxes() {
 // Fonction pour générer les flashcards en fonction des tables sélectionnées
 function generateFlashcards(selectedTables) {
     const flashcards = [];
-    for (let i = 1; i <= 10; i++) {
-        selectedTables.forEach((table) => {
-            let question;
-            let answer;
-            if (exerciseMode === 'add') {
-                question = `${table} + ${i} = ?`;
-                answer = (table + i).toString();
-            } else if (exerciseMode === 'sub') {
-                // Générer des soustractions sans résultat négatif
-                if (i <= table) {
-                    question = `${table} - ${i} = ?`;
-                    answer = (table - i).toString();
-                } else {
-                    question = `${i} - ${table} = ?`;
-                    answer = (i - table).toString();
+
+    if (exerciseMode === 'fact') {
+        // Mode factorisation: générer des produits uniques
+        const productsSet = new Set();
+        const productsData = [];
+
+        for (let i = 1; i <= 10; i++) {
+            selectedTables.forEach((table) => {
+                const product = table * i;
+                if (!productsSet.has(product)) {
+                    productsSet.add(product);
+                    productsData.push({
+                        product: product,
+                        validFactors: getFactorPairs(product)
+                    });
                 }
-            } else {
-                question = `${table} x ${i} = ?`;
-                answer = (table * i).toString();
+            });
+        }
+
+        productsData.forEach(data => {
+            // Ne pas inclure les produits sans facteurs valides (ex: nombres premiers > 12)
+            if (data.validFactors.length > 0) {
+                flashcards.push({
+                    question: `${data.product} = ? x ?`,
+                    answer: null, // Non utilisé pour le mode fact
+                    validFactors: data.validFactors,
+                    times_wrong: 0
+                });
             }
-            const flashcard = {
-                question: question,
-                answer: answer,
-                times_wrong: 0
-            };
-            flashcards.push(flashcard);
         });
+    } else {
+        // Modes mul, add, sub
+        for (let i = 1; i <= 10; i++) {
+            selectedTables.forEach((table) => {
+                let question;
+                let answer;
+                if (exerciseMode === 'add') {
+                    question = `${table} + ${i} = ?`;
+                    answer = (table + i).toString();
+                } else if (exerciseMode === 'sub') {
+                    // Générer des soustractions sans résultat négatif
+                    if (i <= table) {
+                        question = `${table} - ${i} = ?`;
+                        answer = (table - i).toString();
+                    } else {
+                        question = `${i} - ${table} = ?`;
+                        answer = (i - table).toString();
+                    }
+                } else {
+                    question = `${table} x ${i} = ?`;
+                    answer = (table * i).toString();
+                }
+                const flashcard = {
+                    question: question,
+                    answer: answer,
+                    times_wrong: 0
+                };
+                flashcards.push(flashcard);
+            });
+        }
     }
     return flashcards;
 }
@@ -125,6 +232,61 @@ function ensureKeyboardOpen(inputEl) {
     }
 }
 
+// Retourne toutes les paires de facteurs pour un nombre donné
+// - Les deux facteurs doivent être <= 12
+// - Exclut 1×n sauf si c'est la seule option
+// Ex: getFactorPairs(12) retourne [[2,6], [3,4]] (sans 1x12)
+// Ex: getFactorPairs(44) retourne [[4,11]] (2x22 exclu car 22 > 12)
+// Ex: getFactorPairs(7) retourne [[1,7]] (seule option pour un nombre premier)
+function getFactorPairs(n) {
+    const pairs = [];
+    for (let i = 1; i <= Math.sqrt(n); i++) {
+        if (n % i === 0) {
+            const other = n / i;
+            // Les deux facteurs doivent être <= 12
+            if (i <= 12 && other <= 12) {
+                pairs.push([i, other]);
+            }
+        }
+    }
+    // Exclure la paire [1, n] sauf si c'est la seule option
+    if (pairs.length > 1) {
+        return pairs.filter(pair => pair[0] !== 1);
+    }
+    return pairs;
+}
+
+// Valide la réponse de l'utilisateur pour le mode factorisation
+// Accepte: "3,4", "3x4", "3*4", "3 4", "4,3" (l'ordre n'a pas d'importance)
+function validateFactorAnswer(userAnswer, validFactors) {
+    // Normaliser l'entrée: remplacer les séparateurs par des virgules
+    const normalized = userAnswer
+        .toLowerCase()
+        .replace(/\s+/g, ',')   // espaces en virgule
+        .replace(/[x*×]/g, ',') // x, *, × en virgule
+        .replace(/,+/g, ',')    // plusieurs virgules en une seule
+        .trim();
+
+    const parts = normalized.split(',').filter(p => p.length > 0);
+
+    if (parts.length !== 2) {
+        return false;
+    }
+
+    const a = parseInt(parts[0], 10);
+    const b = parseInt(parts[1], 10);
+
+    if (isNaN(a) || isNaN(b)) {
+        return false;
+    }
+
+    // Vérifier contre les paires de facteurs valides (l'ordre n'a pas d'importance)
+    return validFactors.some(pair =>
+        (pair[0] === a && pair[1] === b) ||
+        (pair[0] === b && pair[1] === a)
+    );
+}
+
 // Fonction pour afficher une flashcard
 function displayFlashcard() {
     if (currentCardIndex >= flashcards.length) {
@@ -133,17 +295,36 @@ function displayFlashcard() {
     }
     const card = flashcards[currentCardIndex];
     document.getElementById('question').innerText = card.question;
-    document.getElementById('answer').value = '';
+
+    const answerInput = document.getElementById('answer');
+    answerInput.value = '';
+
+    // Configurer le type d'entrée selon le mode
+    if (exerciseMode === 'fact') {
+        answerInput.type = 'text';
+        answerInput.inputMode = 'numeric';
+        answerInput.placeholder = 'Ex: 3,4 ou 3x4';
+        answerInput.removeAttribute('min');
+        answerInput.removeAttribute('step');
+        answerInput.removeAttribute('pattern');
+    } else {
+        answerInput.type = 'number';
+        answerInput.inputMode = 'numeric';
+        answerInput.placeholder = 'Votre réponse';
+        answerInput.pattern = '[0-9]*';
+        answerInput.min = '0';
+        answerInput.step = '1';
+    }
+
     document.getElementById('feedback').innerText = '';
     document.getElementById('timer').innerText = '';
 
     // Activer le champ de saisie et les boutons
-    document.getElementById('answer').disabled = false;
+    answerInput.disabled = false;
     document.getElementById('submit').disabled = false;
     document.getElementById('end').disabled = false;
 
     // Mettre le focus sur le champ de saisie APRÈS l'avoir activé
-    const answerInput = document.getElementById('answer');
     answerInput.focus();
     ensureKeyboardOpen(answerInput);
 
@@ -176,7 +357,7 @@ function startTimer() {
 }
 
 // Fonction appelée lorsque le temps est écoulé
-function handleTimeout() {
+async function handleTimeout() {
     clearInterval(timer);
 
     // Vérifier si le quiz est terminé
@@ -186,8 +367,19 @@ function handleTimeout() {
 
     const card = flashcards[currentCardIndex];
 
+    // Construire l'affichage de la réponse correcte
+    let correctAnswerDisplay;
+    if (exerciseMode === 'fact') {
+        // Afficher toutes les paires de facteurs valides
+        correctAnswerDisplay = card.validFactors
+            .map(pair => `${pair[0]} x ${pair[1]}`)
+            .join(' ou ');
+    } else {
+        correctAnswerDisplay = card.answer;
+    }
+
     // Afficher le message en français
-    document.getElementById('feedback').innerText = `Temps écoulé ! Veuillez répéter 10 fois : ${card.question} ${card.answer}`;
+    document.getElementById('feedback').innerText = `Temps écoulé ! Veuillez répéter 10 fois : ${card.question.replace(' = ? x ?', '')} = ${correctAnswerDisplay}`;
 
     // Désactiver le champ de saisie et les boutons pendant le délai
     document.getElementById('answer').disabled = true;
@@ -197,9 +389,8 @@ function handleTimeout() {
     // Enregistrer le temps de réponse comme étant la limite de temps
     responseTimes.push(TIME_LIMIT / 1000);
 
-    // Incrémenter times_wrong
-    card.times_wrong = (card.times_wrong || 0) + 1;
-    updateFlashcard(card);
+    // Enregistrer l'erreur dans la base de données
+    await recordUserError(card.question);
 
     currentCardIndex++;
 
@@ -229,20 +420,39 @@ async function submitAnswer() {
     const responseTime = (Date.now() - questionStartTime) / 1000; // En secondes
     responseTimes.push(responseTime);
 
-    if (userAnswer.toLowerCase() === card.answer.toLowerCase()) {
+    // Vérifier la réponse selon le mode
+    let isCorrect = false;
+    if (exerciseMode === 'fact') {
+        isCorrect = validateFactorAnswer(userAnswer, card.validFactors);
+    } else {
+        isCorrect = userAnswer.toLowerCase() === card.answer.toLowerCase();
+    }
+
+    if (isCorrect) {
         document.getElementById('feedback').innerText = 'Correct !';
         score++;
 
         currentCardIndex++;
 
-        // Attendre 2 secondes avant d'afficher la prochaine carte
+        // Attendre 500ms avant d'afficher la prochaine carte
         delayTimer = setTimeout(displayFlashcard, 500);
     } else {
+        // Construire l'affichage de la réponse correcte
+        let correctAnswerDisplay;
+        if (exerciseMode === 'fact') {
+            // Afficher toutes les paires de facteurs valides
+            correctAnswerDisplay = card.validFactors
+                .map(pair => `${pair[0]} x ${pair[1]}`)
+                .join(' ou ');
+        } else {
+            correctAnswerDisplay = card.answer;
+        }
+
         // Afficher le message en français
-        document.getElementById('feedback').innerText = `Veuillez répéter 10 fois : ${card.question} ${card.answer}`;
-        // Incrémenter times_wrong
-        card.times_wrong = (card.times_wrong || 0) + 1;
-        await updateFlashcard(card);
+        document.getElementById('feedback').innerText = `Veuillez répéter 10 fois : ${card.question.replace(' = ? x ?', '')} = ${correctAnswerDisplay}`;
+
+        // Enregistrer l'erreur dans la base de données
+        await recordUserError(card.question);
 
         currentCardIndex++;
 
@@ -290,19 +500,16 @@ function showResults() {
         <p>Temps de réponse moyen : ${meanResponseTimeText} secondes</p>
     `;
 
-    // Envoi du résultat vers la feuille Google (si configurée)
-    const playerName = getCookie('playerName') || '';
-    try {
-        sendResultToSheet(playerName, score, currentCardIndex, selectedTablesChosen, meanResponseTimeSec);
-    } catch (e) {
-        console.warn('Envoi du résultat non effectué:', e);
+    // Envoi du résultat vers la base de données (et Google Sheets si configuré)
+    if (!resultSent) {
+        resultSent = true;
+        const playerName = getCookie('playerName') || '';
+        try {
+            sendResultToSheet(playerName, score, currentCardIndex, selectedTablesChosen, meanResponseTimeSec);
+        } catch (e) {
+            console.warn('Envoi du résultat non effectué:', e);
+        }
     }
-}
-
-// Fonction pour mettre à jour une flashcard (placeholder pour compatibilité)
-async function updateFlashcard(card) {
-    // Si vous avez une logique pour mettre à jour la flashcard sur le serveur, implémentez-la ici
-    // Pour l'instant, cette fonction est vide car nous générons les flashcards côté client
 }
 
 // Envoi du résultat au backend (qui poste ensuite vers Google Sheets)
@@ -346,6 +553,9 @@ function updateModeUI() {
     } else if (exerciseMode === 'sub') {
         MAX_TABLE = 10;
         if (title) title.textContent = 'Sélectionnez les tables de soustractions (1 à 10) :';
+    } else if (exerciseMode === 'fact') {
+        MAX_TABLE = 12;
+        if (title) title.textContent = 'Sélectionnez les tables de factorisations :';
     } else {
         MAX_TABLE = 12;
         if (title) title.textContent = 'Sélectionnez les tables de multiplications :';
@@ -385,6 +595,7 @@ window.onload = function() {
     const modeMul = document.getElementById('mode-mul');
     const modeAdd = document.getElementById('mode-add');
     const modeSub = document.getElementById('mode-sub');
+    const modeFact = document.getElementById('mode-fact');
     if (modeMul) modeMul.addEventListener('change', function() {
         if (this.checked) { exerciseMode = 'mul'; updateModeUI(); }
     });
@@ -393,6 +604,9 @@ window.onload = function() {
     });
     if (modeSub) modeSub.addEventListener('change', function() {
         if (this.checked) { exerciseMode = 'sub'; updateModeUI(); }
+    });
+    if (modeFact) modeFact.addEventListener('change', function() {
+        if (this.checked) { exerciseMode = 'fact'; updateModeUI(); }
     });
 
     const nameForm = document.getElementById('name-form');
@@ -456,12 +670,23 @@ document.getElementById('table-form').addEventListener('submit', function(event)
 
 // Fonction pour charger les flashcards en fonction des tables sélectionnées
 async function loadFlashcards(selectedTables) {
-    // Générer les flashcards en fonction des tables sélectionnées
-    flashcards = generateFlashcards(selectedTables);
+    // Récupérer les erreurs de l'utilisateur
+    userErrors = await fetchUserErrors();
+
+    // Générer toutes les flashcards possibles
+    const allFlashcards = generateFlashcards(selectedTables);
+
+    // Appliquer la sélection pondérée (erreurs ont plus de chances d'apparaître)
+    // et limiter à MAX_OPERATIONS
+    flashcards = selectWeightedFlashcards(allFlashcards, userErrors, MAX_OPERATIONS);
+
+    // Mélanger les cartes sélectionnées
     shuffleFlashcards();
+
     currentCardIndex = 0;
     score = 0;
     responseTimes = [];
+    resultSent = false; // Réinitialiser pour la nouvelle session
 
     // Ajouter les écouteurs d'événements ici
     document.getElementById('submit').addEventListener('click', submitAnswer);
@@ -522,6 +747,9 @@ if ('serviceWorker' in navigator) {
     }
     function sendPartialResult() {
         try {
+            // Ne rien envoyer si les résultats ont déjà été envoyés
+            if (resultSent) return;
+
             // Ne rien envoyer si le quiz n'a pas commencé ou est terminé
             if (!Array.isArray(flashcards) || flashcards.length === 0) return;
             if (currentCardIndex <= 0) return;

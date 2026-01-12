@@ -2,7 +2,8 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Flashcards PWA</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flashcards - Apprends en t'amusant!</title>
     <link rel="stylesheet" href="style.css">
     <link rel="manifest" href="manifest.json">
 </head>
@@ -12,7 +13,7 @@
         <span id="user-name-display"></span>
         <button type="button" id="logout-btn" title="Se déconnecter">Se déconnecter</button>
     </div>
-    <h1>Flashcards</h1>
+    <h1>Super Maths!</h1>
     <img src="icons/logo-192x192.png" alt="Logo de l'application" id="app-logo">
 
     <!-- Section pour saisir le nom (affichée si le cookie est absent) -->
@@ -32,6 +33,7 @@
                 <label><input type="radio" name="mode" id="mode-mul" value="mul" checked> Multiplications</label>
                 <label><input type="radio" name="mode" id="mode-add" value="add"> Additions (1 à 10)</label>
                 <label><input type="radio" name="mode" id="mode-sub" value="sub"> Soustractions (1 à 10)</label>
+                <label><input type="radio" name="mode" id="mode-fact" value="fact"> Factorisations</label>
             </div>
             <!-- Bouton placé juste sous le titre, avant les options -->
             <div class="table-actions top-actions">
@@ -41,7 +43,7 @@
                 <!-- Les cases à cocher seront générées dynamiquement -->
             </div>
             <div class="table-actions">
-                <button type="submit" id="start-button">Commencer</button>
+                <button type="submit" id="start-button">C'est parti !</button>
             </div>
         </form>
     </div>

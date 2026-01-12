@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 type Flashcard struct {
@@ -20,17 +23,73 @@ type Flashcard struct {
 	TimesWrong int    `json:"times_wrong"`
 }
 
-var flashcards []Flashcard
+// UserError represents an error record for a user
+type UserError struct {
+	Question   string `json:"question"`
+	ErrorCount int    `json:"error_count"`
+}
 
-func loadFlashcards() error {
-	file, err := os.Open("flashcards.json")
+var db *sql.DB
+
+func initDB() error {
+	var err error
+	db, err = sql.Open("sqlite", "./flashcards.db")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open database: %w", err)
 	}
-	defer file.Close()
 
-	decoder := json.NewDecoder(file)
-	return decoder.Decode(&flashcards)
+	// Create user_errors table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_errors (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT NOT NULL,
+			exercise_type TEXT NOT NULL,
+			question TEXT NOT NULL,
+			error_count INTEGER DEFAULT 1,
+			last_error_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_name, exercise_type, question)
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create table: %w", err)
+	}
+
+	// Create index for faster lookups
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_user_errors_lookup
+		ON user_errors(user_name, exercise_type)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create index: %w", err)
+	}
+
+	// Create user_results table for storing quiz results
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_results (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT NOT NULL,
+			exercise_type TEXT NOT NULL,
+			score INTEGER NOT NULL,
+			total INTEGER NOT NULL,
+			tables TEXT,
+			mean_time_seconds REAL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create user_results table: %w", err)
+	}
+
+	// Create index for user results lookup
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_user_results_lookup
+		ON user_results(user_name, exercise_type)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create user_results index: %w", err)
+	}
+
+	return nil
 }
 
 // Mise à jour de la fonction getFlashcards
@@ -78,39 +137,101 @@ func generateFlashcards(selectedTables []int) []Flashcard {
 	return flashcards
 }
 
-func updateFlashcard(w http.ResponseWriter, r *http.Request) {
-	var updatedCard Flashcard
-	err := json.NewDecoder(r.Body).Decode(&updatedCard)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+// GET /api/user-errors?name=X&type=Y - Returns user's error history
+func getUserErrors(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.URL.Query().Get("name"))
+	exerciseType := strings.TrimSpace(r.URL.Query().Get("type"))
+
+	if name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
 		return
 	}
+	if exerciseType == "" {
+		exerciseType = "mul" // default
+	}
 
-	// Update the flashcard
-	for i, card := range flashcards {
-		if card.Question == updatedCard.Question {
-			flashcards[i] = updatedCard
-			break
+	rows, err := db.Query(`
+		SELECT question, error_count
+		FROM user_errors
+		WHERE user_name = ? AND exercise_type = ?
+		ORDER BY error_count DESC
+	`, name, exerciseType)
+	if err != nil {
+		slog.Error("Failed to query user errors", "error", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var errors []UserError
+	for rows.Next() {
+		var ue UserError
+		if err := rows.Scan(&ue.Question, &ue.ErrorCount); err != nil {
+			slog.Error("Failed to scan row", "error", err)
+			continue
 		}
+		errors = append(errors, ue)
 	}
 
-	// Save the updated flashcards
-	file, err := os.Create("flashcards.json")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if errors == nil {
+		errors = []UserError{} // Return empty array instead of null
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(errors)
+}
+
+// POST /api/user-error - Record an error for a user
+type userErrorRequest struct {
+	Name         string `json:"name"`
+	ExerciseType string `json:"exercise_type"`
+	Question     string `json:"question"`
+}
+
+func postUserError(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	defer file.Close()
 
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "    ")
-	err = encoder.Encode(flashcards)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	var req userErrorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
 
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	if req.Question == "" {
+		http.Error(w, "question required", http.StatusBadRequest)
+		return
+	}
+	if req.ExerciseType == "" {
+		req.ExerciseType = "mul"
+	}
+
+	// Upsert: insert or increment error_count
+	_, err := db.Exec(`
+		INSERT INTO user_errors (user_name, exercise_type, question, error_count, last_error_date)
+		VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)
+		ON CONFLICT(user_name, exercise_type, question)
+		DO UPDATE SET
+			error_count = error_count + 1,
+			last_error_date = CURRENT_TIMESTAMP
+	`, name, req.ExerciseType, req.Question)
+
+	if err != nil {
+		slog.Error("Failed to record user error", "error", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // Result handling for posting to Google Sheets via backend
@@ -152,12 +273,33 @@ func postResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Save result to SQLite database
+	tablesJSON := ""
+	if len(req.Tables) > 0 {
+		if b, err := json.Marshal(req.Tables); err == nil {
+			tablesJSON = string(b)
+		}
+	}
+	exerciseType := req.ExerciseType
+	if exerciseType == "" {
+		exerciseType = "mul"
+	}
+
+	_, err := db.Exec(`
+		INSERT INTO user_results (user_name, exercise_type, score, total, tables, mean_time_seconds)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, name, exerciseType, req.Score, req.Total, tablesJSON, req.MeanTimeSeconds)
+	if err != nil {
+		slog.Error("Failed to save result to database", "error", err)
+		// Continue anyway to not block the user
+	}
+
 	webhook := os.Getenv("SHEETS_WEBHOOK_URL")
 	if webhook == "" {
 		// If not configured, succeed without forwarding to avoid blocking UI
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "forwarded": "false"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "forwarded": "false", "saved": "true"})
 		return
 	}
 
@@ -200,10 +342,11 @@ func postResult(w http.ResponseWriter, r *http.Request) {
 var staticFiles embed.FS
 
 func main() {
-	err := loadFlashcards()
-	if err != nil {
-		panic(err)
+	// Initialize SQLite database
+	if err := initDB(); err != nil {
+		panic(fmt.Sprintf("Failed to initialize database: %v", err))
 	}
+	defer db.Close()
 
 	// Serve embedded static files from the "static" subdirectory at /static/
 	sub, err2 := fs.Sub(staticFiles, "static")
@@ -223,7 +366,8 @@ func main() {
 	})
 
 	http.HandleFunc("/api/flashcards", getFlashcards)
-	http.HandleFunc("/api/update", updateFlashcard)
+	http.HandleFunc("/api/user-errors", getUserErrors)
+	http.HandleFunc("/api/user-error", postUserError)
 	http.HandleFunc("/api/result", postResult)
 
 	port := 8080
