@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tableau des scores - Super Maths!</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <style>
+        .scores-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        #app {
+            max-width: 1100px;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        .filter-section {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .filter-section select {
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 10px;
+            border: 2px solid #667eea;
+            background: white;
+            cursor: pointer;
+        }
+
+        .scores-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .scores-table th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 10px;
+            text-align: left;
+            font-weight: bold;
+        }
+
+        .scores-table td {
+            padding: 12px 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .scores-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .scores-table tr:hover {
+            background-color: #f8f9ff;
+        }
+
+        .score-badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-weight: bold;
+            color: white;
+        }
+
+        .score-perfect {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+
+        .score-good {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .score-medium {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .score-low {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%);
+        }
+
+        .exercise-type {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .type-mul { background: #e3f2fd; color: #1976d2; }
+        .type-add { background: #e8f5e9; color: #388e3c; }
+        .type-sub { background: #fff3e0; color: #f57c00; }
+        .type-fact { background: #fce4ec; color: #c2185b; }
+
+        .no-scores {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            font-size: 18px;
+        }
+
+        .rank {
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .rank-1 { color: #ffd700; font-size: 1.2em; }
+        .rank-2 { color: #c0c0c0; font-size: 1.1em; }
+        .rank-3 { color: #cd7f32; font-size: 1.05em; }
+
+        .section-title {
+            margin-top: 40px;
+            margin-bottom: 20px;
+            color: #764ba2;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .attempts-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            font-size: 14px;
+        }
+
+        .attempts-table th {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            padding: 12px 8px;
+            text-align: left;
+            font-weight: bold;
+        }
+
+        .attempts-table td {
+            padding: 10px 8px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .attempts-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .attempts-table tr:hover {
+            background-color: #f0fff4;
+        }
+
+        .time-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .tables-list {
+            font-size: 12px;
+            color: #666;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Badge styles */
+        .badges-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .badges-table th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 10px;
+            text-align: left;
+            font-weight: bold;
+        }
+
+        .badges-table td {
+            padding: 12px 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .badges-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .badges-table tr:hover {
+            background-color: #f8f9ff;
+        }
+
+        .badge-icon {
+            display: inline-block;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        .badge-diamond {
+            background: linear-gradient(135deg, #a8edea 0%, #fed6e3 50%, #667eea 100%);
+            color: #333;
+            text-shadow: 0 1px 2px rgba(255,255,255,0.5);
+        }
+
+        .badge-gold {
+            background: linear-gradient(135deg, #f5af19 0%, #f12711 100%);
+            color: white;
+        }
+
+        .badge-silver {
+            background: linear-gradient(135deg, #bdc3c7 0%, #606c88 100%);
+            color: white;
+        }
+
+        .badge-bronze {
+            background: linear-gradient(135deg, #cd7f32 0%, #8b4513 100%);
+            color: white;
+        }
+
+        .tables-count {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 12px;
+            background: #e8f5e9;
+            color: #388e3c;
+            font-weight: bold;
+        }
+
+        .badges-cell {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .badge-svg-container {
+            display: inline-block;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        .badge-svg-container:hover {
+            transform: scale(1.15);
+        }
+
+        /* Badge legend styles */
+        .badges-legend {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .legend-intro {
+            text-align: center;
+            font-size: 16px;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .legend-section {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .legend-section:last-of-type {
+            border-bottom: none;
+            margin-bottom: 10px;
+        }
+
+        .legend-section h3 {
+            color: #667eea;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        .legend-note {
+            font-size: 13px;
+            color: #666;
+            font-style: italic;
+            margin-bottom: 10px;
+        }
+
+        .legend-items {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .legend-badge-svg {
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .legend-desc {
+            color: #555;
+            font-size: 14px;
+        }
+
+        .legend-symbols-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .legend-symbol-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: #555;
+        }
+
+        @media (max-width: 600px) {
+            .scores-table th, .scores-table td {
+                padding: 8px 5px;
+                font-size: 14px;
+            }
+
+            .score-badge {
+                padding: 3px 8px;
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <h1>Super Maths!</h1>
+    <img src="icons/logo-192x192.png" alt="Logo de l'application" id="app-logo">
+
+    <div class="scores-container">
+        <a href="index.html" class="back-link">&larr; Retour au jeu</a>
+
+        <h2>Badges</h2>
+
+        <div id="badges-content">
+            <p class="no-scores">Chargement...</p>
+        </div>
+
+        <h2 class="section-title">Tableau des scores</h2>
+
+        <div class="filter-section">
+            <select id="exercise-filter">
+                <option value="all">Tous les exercices</option>
+                <option value="mul">Multiplications</option>
+                <option value="add">Additions</option>
+                <option value="sub">Soustractions</option>
+                <option value="fact">Exo Mama</option>
+            </select>
+        </div>
+
+        <div id="scores-content">
+            <p class="no-scores">Chargement...</p>
+        </div>
+
+        <h2 class="section-title">Historique des essais</h2>
+
+        <div id="attempts-content">
+            <p class="no-scores">Chargement...</p>
+        </div>
+
+        <h2 class="section-title">Comment obtenir les badges ?</h2>
+
+        <div class="badges-legend">
+            <p class="legend-intro">Complète un exercice avec <strong>40 questions</strong> pour gagner des badges !</p>
+
+            <div class="legend-section">
+                <h3>Badges standards (5+ tables)</h3>
+                <div class="legend-items">
+                    <div class="legend-item">
+                        <span id="legend-bronze" class="legend-badge-svg"></span>
+                        <span class="legend-desc"><strong>Bronze</strong> - 36/40 ou plus avec au moins 5 tables</span>
+                    </div>
+                    <div class="legend-item">
+                        <span id="legend-silver" class="legend-badge-svg"></span>
+                        <span class="legend-desc"><strong>Argent</strong> - 38/40 ou plus avec au moins 5 tables</span>
+                    </div>
+                    <div class="legend-item">
+                        <span id="legend-gold" class="legend-badge-svg"></span>
+                        <span class="legend-desc"><strong>Or</strong> - 40/40 (score parfait) avec au moins 5 tables</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <h3>Badges 10 tables (10+ tables)</h3>
+                <p class="legend-note">Les mêmes badges mais avec un petit "10" - plus difficiles à obtenir !</p>
+                <div class="legend-items">
+                    <div class="legend-item">
+                        <span id="legend-bronze10" class="legend-badge-svg"></span>
+                        <span class="legend-desc"><strong>Bronze 10</strong> - 36/40 ou plus avec au moins 10 tables</span>
+                    </div>
+                    <div class="legend-item">
+                        <span id="legend-silver10" class="legend-badge-svg"></span>
+                        <span class="legend-desc"><strong>Argent 10</strong> - 38/40 ou plus avec au moins 10 tables</span>
+                    </div>
+                    <div class="legend-item">
+                        <span id="legend-gold10" class="legend-badge-svg"></span>
+                        <span class="legend-desc"><strong>Or 10</strong> - 40/40 (score parfait) avec au moins 10 tables</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <h3>Badge ultime</h3>
+                <div class="legend-items">
+                    <div class="legend-item">
+                        <span id="legend-diamond" class="legend-badge-svg"></span>
+                        <span class="legend-desc"><strong>Diamant</strong> - 40/40 (score parfait) avec les 12 tables !</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <h3>Symboles sur les badges</h3>
+                <div class="legend-symbols-grid">
+                    <div class="legend-symbol-item">
+                        <span id="legend-symbol-mul" class="legend-badge-svg"></span>
+                        <span>Multiplications</span>
+                    </div>
+                    <div class="legend-symbol-item">
+                        <span id="legend-symbol-add" class="legend-badge-svg"></span>
+                        <span>Additions</span>
+                    </div>
+                    <div class="legend-symbol-item">
+                        <span id="legend-symbol-sub" class="legend-badge-svg"></span>
+                        <span>Soustractions</span>
+                    </div>
+                    <div class="legend-symbol-item">
+                        <span id="legend-symbol-fact" class="legend-badge-svg"></span>
+                        <span>Exo Mama</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let allScores = [];
+let allAttempts = [];
+let allBadges = [];
+
+async function loadBadges() {
+    try {
+        const response = await fetch('/api/badges');
+        if (response.ok) {
+            allBadges = await response.json();
+            displayBadges(allBadges);
+        } else {
+            document.getElementById('badges-content').innerHTML =
+                '<p class="no-scores">Erreur lors du chargement des badges</p>';
+        }
+    } catch (e) {
+        console.error('Erreur:', e);
+        document.getElementById('badges-content').innerHTML =
+            '<p class="no-scores">Erreur lors du chargement des badges</p>';
+    }
+}
+
+async function loadScores() {
+    try {
+        const response = await fetch('/api/scores');
+        if (response.ok) {
+            allScores = await response.json();
+            displayScores(allScores);
+        } else {
+            document.getElementById('scores-content').innerHTML =
+                '<p class="no-scores">Erreur lors du chargement des scores</p>';
+        }
+    } catch (e) {
+        console.error('Erreur:', e);
+        document.getElementById('scores-content').innerHTML =
+            '<p class="no-scores">Erreur lors du chargement des scores</p>';
+    }
+}
+
+async function loadAttempts() {
+    try {
+        const response = await fetch('/api/attempts');
+        if (response.ok) {
+            allAttempts = await response.json();
+            displayAttempts(allAttempts);
+        } else {
+            document.getElementById('attempts-content').innerHTML =
+                '<p class="no-scores">Erreur lors du chargement des essais</p>';
+        }
+    } catch (e) {
+        console.error('Erreur:', e);
+        document.getElementById('attempts-content').innerHTML =
+            '<p class="no-scores">Erreur lors du chargement des essais</p>';
+    }
+}
+
+function getExerciseTypeName(type) {
+    const names = {
+        'mul': 'Multiplications',
+        'add': 'Additions',
+        'sub': 'Soustractions',
+        'fact': 'Exo Mama'
+    };
+    return names[type] || type;
+}
+
+function getScoreBadgeClass(percentage) {
+    if (percentage >= 100) return 'score-perfect';
+    if (percentage >= 80) return 'score-good';
+    if (percentage >= 60) return 'score-medium';
+    return 'score-low';
+}
+
+function formatDate(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    });
+}
+
+function displayScores(scores) {
+    const container = document.getElementById('scores-content');
+    const filter = document.getElementById('exercise-filter').value;
+
+    let filteredScores = scores;
+    if (filter !== 'all') {
+        filteredScores = scores.filter(s => s.exercise_type === filter);
+    }
+
+    if (filteredScores.length === 0) {
+        container.innerHTML = '<p class="no-scores">Aucun score pour le moment. Soyez le premier !</p>';
+        return;
+    }
+
+    let html = `
+        <table class="scores-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Joueur</th>
+                    <th>Exercice</th>
+                    <th>Meilleur score</th>
+                    <th>Essais</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    filteredScores.forEach((score, index) => {
+        const rank = index + 1;
+        let rankClass = '';
+        let rankDisplay = rank;
+        if (rank === 1) { rankClass = 'rank-1'; rankDisplay = '🥇'; }
+        else if (rank === 2) { rankClass = 'rank-2'; rankDisplay = '🥈'; }
+        else if (rank === 3) { rankClass = 'rank-3'; rankDisplay = '🥉'; }
+
+        const badgeClass = getScoreBadgeClass(score.best_percentage);
+
+        html += `
+            <tr>
+                <td><span class="rank ${rankClass}">${rankDisplay}</span></td>
+                <td>${escapeHtml(score.user_name)}</td>
+                <td><span class="exercise-type type-${score.exercise_type}">${getExerciseTypeName(score.exercise_type)}</span></td>
+                <td><span class="score-badge ${badgeClass}">${score.best_score}/${score.best_total} (${Math.round(score.best_percentage)}%)</span></td>
+                <td>${score.total_attempts}</td>
+            </tr>
+        `;
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function formatDateTime(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+function formatTables(tablesStr) {
+    if (!tablesStr) return '-';
+    try {
+        const tables = JSON.parse(tablesStr);
+        if (Array.isArray(tables) && tables.length > 0) {
+            return tables.sort((a, b) => a - b).join(', ');
+        }
+    } catch (e) {}
+    return '-';
+}
+
+function displayAttempts(attempts) {
+    const container = document.getElementById('attempts-content');
+    const filter = document.getElementById('exercise-filter').value;
+
+    let filteredAttempts = attempts;
+    if (filter !== 'all') {
+        filteredAttempts = attempts.filter(a => a.exercise_type === filter);
+    }
+
+    if (filteredAttempts.length === 0) {
+        container.innerHTML = '<p class="no-scores">Aucun essai pour le moment.</p>';
+        return;
+    }
+
+    let html = `
+        <table class="attempts-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Joueur</th>
+                    <th>Exercice</th>
+                    <th>Score</th>
+                    <th>Temps moy.</th>
+                    <th>Tables</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    filteredAttempts.forEach(attempt => {
+        const percentage = attempt.total > 0 ? (attempt.score / attempt.total) * 100 : 0;
+        const badgeClass = getScoreBadgeClass(percentage);
+        const meanTime = attempt.mean_time_seconds > 0 ? attempt.mean_time_seconds.toFixed(1) + 's' : '-';
+
+        html += `
+            <tr>
+                <td>${formatDateTime(attempt.created_at)}</td>
+                <td>${escapeHtml(attempt.user_name)}</td>
+                <td><span class="exercise-type type-${attempt.exercise_type}">${getExerciseTypeName(attempt.exercise_type)}</span></td>
+                <td><span class="score-badge ${badgeClass}">${attempt.score}/${attempt.total}</span></td>
+                <td><span class="time-badge">${meanTime}</span></td>
+                <td><span class="tables-list" title="${formatTables(attempt.tables)}">${formatTables(attempt.tables)}</span></td>
+            </tr>
+        `;
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+function getBadgeName(badgeType) {
+    const names = {
+        'diamond': 'Diamant',
+        'gold': 'Or',
+        'silver': 'Argent',
+        'bronze': 'Bronze'
+    };
+    return names[badgeType] || badgeType;
+}
+
+function getExerciseSymbol(exerciseType) {
+    const symbols = {
+        'mul': '×',
+        'add': '+',
+        'sub': '−',
+        'fact': '?'
+    };
+    return symbols[exerciseType] || '?';
+}
+
+let badgeSvgCounter = 0;
+
+function createBadgeSVG(badgeType, exerciseType, isTenTables = false) {
+    // Unique ID for this SVG's gradient
+    const uniqueId = ++badgeSvgCounter;
+
+    // Colors for each badge type
+    const colors = {
+        'diamond': {
+            primary: '#b9f2ff',
+            secondary: '#e0f7ff',
+            accent: '#7dd3fc',
+            stroke: '#0ea5e9',
+            text: '#0c4a6e'
+        },
+        'gold': {
+            primary: '#ffd700',
+            secondary: '#ffec80',
+            accent: '#f59e0b',
+            stroke: '#b45309',
+            text: '#78350f'
+        },
+        'silver': {
+            primary: '#c0c0c0',
+            secondary: '#e8e8e8',
+            accent: '#9ca3af',
+            stroke: '#6b7280',
+            text: '#374151'
+        },
+        'bronze': {
+            primary: '#cd7f32',
+            secondary: '#dda15e',
+            accent: '#b45309',
+            stroke: '#78350f',
+            text: '#451a03'
+        }
+    };
+
+    const c = colors[badgeType] || colors['bronze'];
+    const symbol = getExerciseSymbol(exerciseType);
+    const gradId = `grad-${badgeType}-${uniqueId}`;
+
+    // Create medal/badge SVG
+    const svg = `
+        <svg width="50" height="60" viewBox="0 0 50 60" xmlns="http://www.w3.org/2000/svg">
+            <!-- Ribbon -->
+            <path d="M15 0 L20 15 L25 0 L30 15 L35 0 L35 20 L15 20 Z" fill="${badgeType === 'diamond' ? '#667eea' : '#dc2626'}" />
+            <path d="M17 0 L21 12 L25 0 L29 12 L33 0 L33 18 L17 18 Z" fill="${badgeType === 'diamond' ? '#764ba2' : '#991b1b'}" />
+
+            <!-- Medal circle -->
+            <defs>
+                <linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:${c.secondary};stop-opacity:1" />
+                    <stop offset="50%" style="stop-color:${c.primary};stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:${c.accent};stop-opacity:1" />
+                </linearGradient>
+            </defs>
+
+            <!-- Medal body -->
+            <circle cx="25" cy="40" r="18" fill="url(#${gradId})" stroke="${c.stroke}" stroke-width="2"/>
+
+            <!-- Inner circle -->
+            <circle cx="25" cy="40" r="13" fill="none" stroke="${c.stroke}" stroke-width="1" opacity="0.5"/>
+
+            <!-- Exercise symbol -->
+            <text x="25" y="46" text-anchor="middle" font-size="18" font-weight="bold" fill="${c.text}" font-family="Arial, sans-serif">${symbol}</text>
+
+            ${badgeType === 'diamond' ? `
+            <!-- Diamond sparkles -->
+            <circle cx="12" cy="35" r="1.5" fill="white" opacity="0.8"/>
+            <circle cx="38" cy="45" r="1" fill="white" opacity="0.6"/>
+            <circle cx="20" cy="28" r="1" fill="white" opacity="0.7"/>
+            ` : ''}
+
+            ${isTenTables ? `
+            <!-- 10 tables indicator -->
+            <circle cx="42" cy="54" r="8" fill="#1e40af" stroke="white" stroke-width="1"/>
+            <text x="42" y="58" text-anchor="middle" font-size="10" font-weight="bold" fill="white" font-family="Arial, sans-serif">10</text>
+            ` : ''}
+        </svg>
+    `;
+
+    return svg;
+}
+
+function displayBadges(badges) {
+    const container = document.getElementById('badges-content');
+    const filter = document.getElementById('exercise-filter').value;
+
+    // Reset SVG counter for fresh gradient IDs
+    badgeSvgCounter = 0;
+
+    let filteredBadges = badges;
+    if (filter !== 'all') {
+        filteredBadges = badges.filter(b => b.exercise_type === filter);
+    }
+
+    if (filteredBadges.length === 0) {
+        container.innerHTML = '<p class="no-scores">Aucun badge obtenu pour le moment. Obtenez 36/40 avec au moins 5 tables pour gagner un badge !</p>';
+        return;
+    }
+
+    // Group badges by user
+    const badgesByUser = {};
+    filteredBadges.forEach(badge => {
+        if (!badgesByUser[badge.user_name]) {
+            badgesByUser[badge.user_name] = [];
+        }
+        badgesByUser[badge.user_name].push(badge);
+    });
+
+    // Sort users by their best badge (diamond > gold10 > gold > silver10 > silver > bronze10 > bronze)
+    function getBadgePriority(badge) {
+        const basePriority = { 'diamond': 7, 'gold': 5, 'silver': 3, 'bronze': 1 };
+        let priority = basePriority[badge.badge_type] || 0;
+        // 10-tables badges get +1 priority (gold10 = 6, silver10 = 4, bronze10 = 2)
+        if (badge.is_ten_tables) priority += 1;
+        return priority;
+    }
+    const sortedUsers = Object.keys(badgesByUser).sort((a, b) => {
+        const maxA = Math.max(...badgesByUser[a].map(badge => getBadgePriority(badge)));
+        const maxB = Math.max(...badgesByUser[b].map(badge => getBadgePriority(badge)));
+        if (maxB !== maxA) return maxB - maxA;
+        // If same max badge, sort by number of badges
+        return badgesByUser[b].length - badgesByUser[a].length;
+    });
+
+    let html = `
+        <table class="badges-table">
+            <thead>
+                <tr>
+                    <th>Joueur</th>
+                    <th>Badges</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    sortedUsers.forEach(userName => {
+        const userBadges = badgesByUser[userName];
+        // Sort badges by exercise type, then by 10-tables (10-tables first)
+        const exerciseOrder = ['mul', 'add', 'sub', 'fact'];
+        userBadges.sort((a, b) => {
+            const exA = exerciseOrder.indexOf(a.exercise_type);
+            const exB = exerciseOrder.indexOf(b.exercise_type);
+            if (exA !== exB) return exA - exB;
+            // 10-tables badges first within same exercise
+            return (b.is_ten_tables ? 1 : 0) - (a.is_ten_tables ? 1 : 0);
+        });
+
+        const badgesHtml = userBadges.map(badge => {
+            const tenTablesText = badge.is_ten_tables ? ' (10 tables)' : '';
+            return `<span class="badge-svg-container" title="${getBadgeName(badge.badge_type)}${tenTablesText} - ${getExerciseTypeName(badge.exercise_type)} (${badge.best_score}/${badge.best_total})">${createBadgeSVG(badge.badge_type, badge.exercise_type, badge.is_ten_tables)}</span>`;
+        }).join('');
+
+        html += `
+            <tr>
+                <td>${escapeHtml(userName)}</td>
+                <td class="badges-cell">${badgesHtml}</td>
+            </tr>
+        `;
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+document.getElementById('exercise-filter').addEventListener('change', function() {
+    displayBadges(allBadges);
+    displayScores(allScores);
+    displayAttempts(allAttempts);
+});
+
+// Populate legend badges with actual SVGs
+function populateLegendBadges() {
+    // Badge type examples (using 'mul' as default symbol)
+    const legendBadges = [
+        { id: 'legend-bronze', type: 'bronze', exercise: 'mul', tenTables: false },
+        { id: 'legend-silver', type: 'silver', exercise: 'mul', tenTables: false },
+        { id: 'legend-gold', type: 'gold', exercise: 'mul', tenTables: false },
+        { id: 'legend-bronze10', type: 'bronze', exercise: 'mul', tenTables: true },
+        { id: 'legend-silver10', type: 'silver', exercise: 'mul', tenTables: true },
+        { id: 'legend-gold10', type: 'gold', exercise: 'mul', tenTables: true },
+        { id: 'legend-diamond', type: 'diamond', exercise: 'mul', tenTables: false },
+    ];
+
+    legendBadges.forEach(badge => {
+        const el = document.getElementById(badge.id);
+        if (el) {
+            el.innerHTML = createBadgeSVG(badge.type, badge.exercise, badge.tenTables);
+        }
+    });
+
+    // Symbol examples (using gold as the badge type to show the symbol clearly)
+    const symbolBadges = [
+        { id: 'legend-symbol-mul', exercise: 'mul' },
+        { id: 'legend-symbol-add', exercise: 'add' },
+        { id: 'legend-symbol-sub', exercise: 'sub' },
+        { id: 'legend-symbol-fact', exercise: 'fact' },
+    ];
+
+    symbolBadges.forEach(badge => {
+        const el = document.getElementById(badge.id);
+        if (el) {
+            el.innerHTML = createBadgeSVG('gold', badge.exercise, false);
+        }
+    });
+}
+
+loadBadges();
+loadScores();
+loadAttempts();
+populateLegendBadges();
+</script>
+
+<div id="buy_me_a_coffee">
+    <a href="https://buymeacoffee.com/mathieuchauvet" target="_blank">
+        <img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;">
+    </a>
+</div>
+</body>
+</html>

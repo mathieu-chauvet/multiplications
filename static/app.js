@@ -6,7 +6,13 @@ let score = 0;
 let timer; // Timer pour le compte à rebours
 let delayTimer; // Timer pour les délais entre les questions
 const TIME_LIMIT = 6000; // 6 secondes en millisecondes
+const TIME_LIMIT_FACT = 9000; // 9 secondes pour Exo Mama (factorisation)
 const MAX_OPERATIONS = 40; // Nombre maximum d'opérations par exercice
+
+// Retourne le temps limite en fonction du mode d'exercice
+function getTimeLimit() {
+    return exerciseMode === 'fact' ? TIME_LIMIT_FACT : TIME_LIMIT;
+}
 let responseTimes = []; // Stocke les temps de réponse
 let questionStartTime; // Enregistre l'heure de début de chaque question
 let MAX_TABLE = 12; // Nombre maximum de tables disponibles (12 pour multiplications, 10 pour additions)
@@ -394,7 +400,7 @@ function startTimer() {
     // Effacer tout timer existant
     clearInterval(timer);
 
-    let timeLeft = TIME_LIMIT / 1000; // Convertir en secondes
+    let timeLeft = getTimeLimit() / 1000; // Convertir en secondes
 
     document.getElementById('timer').innerText = `Temps restant : ${timeLeft}s`;
 
@@ -441,7 +447,7 @@ async function handleTimeout() {
     document.getElementById('end').disabled = true;
 
     // Enregistrer le temps de réponse comme étant la limite de temps
-    responseTimes.push(TIME_LIMIT / 1000);
+    responseTimes.push(getTimeLimit() / 1000);
 
     // Enregistrer l'erreur dans la base de données
     await recordUserError(card.question);
@@ -573,8 +579,8 @@ function showResults() {
 
     console.log('Celebration check:', { score, currentCardIndex, isPerfect, currentRatio, previousRatio, isNewRecord, userBestScore });
 
-    // Afficher la célébration si score parfait ou nouveau record
-    if (isPerfect || isNewRecord) {
+    // Afficher la célébration si score parfait ou nouveau record, uniquement si les 40 questions ont été complétées
+    if ((isPerfect || isNewRecord) && currentCardIndex === 40) {
         console.log('Showing celebration!');
         showCelebration(isPerfect, isNewRecord);
     }
@@ -616,11 +622,11 @@ const answerKeyUpHandler = function(event) {
 function updateModeUI() {
     const title = document.getElementById('selection-title');
     if (exerciseMode === 'add') {
-        MAX_TABLE = 10;
-        if (title) title.textContent = 'Sélectionnez les tables d\'additions (1 à 10) :';
+        MAX_TABLE = 12;
+        if (title) title.textContent = 'Sélectionnez les tables d\'additions (1 à 12) :';
     } else if (exerciseMode === 'sub') {
-        MAX_TABLE = 10;
-        if (title) title.textContent = 'Sélectionnez les tables de soustractions (1 à 10) :';
+        MAX_TABLE = 12;
+        if (title) title.textContent = 'Sélectionnez les tables de soustractions (1 à 12) :';
     } else if (exerciseMode === 'fact') {
         MAX_TABLE = 12;
         if (title) title.textContent = 'Exo Mama - Sélectionnez les tables :';
@@ -712,6 +718,12 @@ window.onload = function() {
 // Ajouter un écouteur pour le formulaire de sélection des tables
 document.getElementById('table-form').addEventListener('submit', function(event) {
     event.preventDefault(); // Empêche le rechargement de la page
+
+    // Lire le mode sélectionné directement depuis les radio buttons (évite les bugs de synchronisation)
+    const selectedModeRadio = document.querySelector('input[name="mode"]:checked');
+    if (selectedModeRadio) {
+        exerciseMode = selectedModeRadio.value;
+    }
 
     // Récupérer les tables sélectionnées
     const selectedTables = [];

@@ -5,17 +5,37 @@ import (
 	"database/sql"
 	"embed"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/pelletier/go-toml/v2"
 	_ "modernc.org/sqlite"
 )
+
+// Config structures for TOML configuration
+type Config struct {
+	HTTPConfig HTTPConfig `toml:"httpconfig"`
+	DBConfig   DBConfig   `toml:"dbconfig"`
+}
+
+type HTTPConfig struct {
+	Port        string `toml:"port"`
+	MetricsPort string `toml:"metricsport"`
+}
+
+type DBConfig struct {
+	DBPath string `toml:"dbpath"`
+}
+
+var config Config
 
 type Flashcard struct {
 	Question   string `json:"question"`
@@ -33,10 +53,11 @@ var db *sql.DB
 
 func initDB() error {
 	var err error
-	db, err = sql.Open("sqlite", "./flashcards.db")
+	db, err = sql.Open("sqlite", config.DBConfig.DBPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
+	slog.Info("Database opened", "path", config.DBConfig.DBPath)
 
 	// Create user_errors table
 	_, err = db.Exec(`
@@ -185,6 +206,267 @@ func getUserErrors(w http.ResponseWriter, r *http.Request) {
 type BestScore struct {
 	Score int `json:"score"`
 	Total int `json:"total"`
+}
+
+// GET /api/scores - Returns all users' scores
+type UserScore struct {
+	UserName       string  `json:"user_name"`
+	ExerciseType   string  `json:"exercise_type"`
+	BestScore      int     `json:"best_score"`
+	BestTotal      int     `json:"best_total"`
+	BestPercentage float64 `json:"best_percentage"`
+	TotalAttempts  int     `json:"total_attempts"`
+	LastAttempt    string  `json:"last_attempt"`
+}
+
+func getAllScores(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query(`
+		SELECT
+			user_name,
+			exercise_type,
+			MAX(CAST(score AS REAL) / NULLIF(total, 0)) as best_percentage,
+			COUNT(*) as total_attempts,
+			MAX(created_at) as last_attempt
+		FROM user_results
+		WHERE total > 0
+		GROUP BY user_name, exercise_type
+		ORDER BY best_percentage DESC, user_name ASC
+	`)
+	if err != nil {
+		slog.Error("Failed to query scores", "error", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var scores []UserScore
+	for rows.Next() {
+		var us UserScore
+		var bestPercentage sql.NullFloat64
+		if err := rows.Scan(&us.UserName, &us.ExerciseType, &bestPercentage, &us.TotalAttempts, &us.LastAttempt); err != nil {
+			slog.Error("Failed to scan row", "error", err)
+			continue
+		}
+		if bestPercentage.Valid {
+			us.BestPercentage = bestPercentage.Float64 * 100
+		}
+
+		// Get the actual best score and total for this user/exercise
+		err := db.QueryRow(`
+			SELECT score, total
+			FROM user_results
+			WHERE user_name = ? AND exercise_type = ? AND total > 0
+			ORDER BY (CAST(score AS REAL) / total) DESC, score DESC
+			LIMIT 1
+		`, us.UserName, us.ExerciseType).Scan(&us.BestScore, &us.BestTotal)
+		if err != nil {
+			slog.Error("Failed to get best score details", "error", err)
+		}
+
+		scores = append(scores, us)
+	}
+
+	if scores == nil {
+		scores = []UserScore{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(scores)
+}
+
+// GET /api/attempts - Returns all attempts
+type Attempt struct {
+	UserName        string  `json:"user_name"`
+	ExerciseType    string  `json:"exercise_type"`
+	Score           int     `json:"score"`
+	Total           int     `json:"total"`
+	Tables          string  `json:"tables"`
+	MeanTimeSeconds float64 `json:"mean_time_seconds"`
+	CreatedAt       string  `json:"created_at"`
+}
+
+func getAllAttempts(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query(`
+		SELECT user_name, exercise_type, score, total, COALESCE(tables, ''), COALESCE(mean_time_seconds, 0), created_at
+		FROM user_results
+		ORDER BY created_at DESC
+		LIMIT 500
+	`)
+	if err != nil {
+		slog.Error("Failed to query attempts", "error", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var attempts []Attempt
+	for rows.Next() {
+		var a Attempt
+		if err := rows.Scan(&a.UserName, &a.ExerciseType, &a.Score, &a.Total, &a.Tables, &a.MeanTimeSeconds, &a.CreatedAt); err != nil {
+			slog.Error("Failed to scan row", "error", err)
+			continue
+		}
+		attempts = append(attempts, a)
+	}
+
+	if attempts == nil {
+		attempts = []Attempt{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(attempts)
+}
+
+// GET /api/badges - Returns earned badges for all users
+type UserBadge struct {
+	UserName     string `json:"user_name"`
+	ExerciseType string `json:"exercise_type"`
+	BadgeType    string `json:"badge_type"`
+	BestScore    int    `json:"best_score"`
+	BestTotal    int    `json:"best_total"`
+	TablesCount  int    `json:"tables_count"`
+	IsTenTables  bool   `json:"is_ten_tables"`
+}
+
+// calculateBadges returns all badges earned for a given score/tables combination
+func calculateBadges(score, total, tablesCount int) []string {
+	var badges []string
+
+	if tablesCount < 5 {
+		return badges // No badge if less than 5 tables
+	}
+
+	// Diamond badge: 12 tables + perfect score (unique, no 10-tables variant)
+	if tablesCount == 12 && score == 40 && total == 40 {
+		badges = append(badges, "diamond")
+	}
+
+	// Regular badges (5+ tables)
+	if score == 40 && total == 40 {
+		badges = append(badges, "gold")
+	} else if score >= 38 && total == 40 {
+		badges = append(badges, "silver")
+	} else if score >= 36 && total == 40 {
+		badges = append(badges, "bronze")
+	}
+
+	// 10-tables badges (10+ tables, same thresholds)
+	if tablesCount >= 10 {
+		if score == 40 && total == 40 {
+			badges = append(badges, "gold10")
+		} else if score >= 38 && total == 40 {
+			badges = append(badges, "silver10")
+		} else if score >= 36 && total == 40 {
+			badges = append(badges, "bronze10")
+		}
+	}
+
+	return badges
+}
+
+func getBadges(w http.ResponseWriter, r *http.Request) {
+	// Get all results with 40 total questions and at least 36 score
+	rows, err := db.Query(`
+		SELECT user_name, exercise_type, score, total, COALESCE(tables, '')
+		FROM user_results
+		WHERE total = 40 AND score >= 36
+		ORDER BY user_name, exercise_type, score DESC
+	`)
+	if err != nil {
+		slog.Error("Failed to query badges", "error", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	// Track best badge per user/exercise/badgeType combination
+	// Key format: "userName|exerciseType|badgeType"
+	badgeMap := make(map[string]UserBadge)
+
+	// Badge priority for comparison (higher = better)
+	badgePriority := map[string]int{
+		"diamond": 6, "gold10": 5, "gold": 4,
+		"silver10": 3, "silver": 2, "bronze10": 1, "bronze": 0,
+	}
+
+	for rows.Next() {
+		var userName, exerciseType, tablesJSON string
+		var score, total int
+		if err := rows.Scan(&userName, &exerciseType, &score, &total, &tablesJSON); err != nil {
+			slog.Error("Failed to scan row", "error", err)
+			continue
+		}
+
+		// Parse tables JSON to count
+		tablesCount := 0
+		if tablesJSON != "" {
+			var tables []int
+			if err := json.Unmarshal([]byte(tablesJSON), &tables); err == nil {
+				tablesCount = len(tables)
+			}
+		}
+
+		earnedBadges := calculateBadges(score, total, tablesCount)
+
+		for _, badgeType := range earnedBadges {
+			// Determine base badge type for grouping (e.g., gold10 -> gold)
+			baseBadge := badgeType
+			isTenTables := false
+			if len(badgeType) > 2 && badgeType[len(badgeType)-2:] == "10" {
+				baseBadge = badgeType[:len(badgeType)-2]
+				isTenTables = true
+			}
+
+			key := userName + "|" + exerciseType + "|" + badgeType
+			existing, exists := badgeMap[key]
+
+			// Keep the best score for each badge type
+			if !exists || score > existing.BestScore {
+				badgeMap[key] = UserBadge{
+					UserName:     userName,
+					ExerciseType: exerciseType,
+					BadgeType:    baseBadge,
+					BestScore:    score,
+					BestTotal:    total,
+					TablesCount:  tablesCount,
+					IsTenTables:  isTenTables,
+				}
+			}
+		}
+	}
+
+	// Convert map to slice and sort by priority
+	var badges []UserBadge
+	for _, badge := range badgeMap {
+		badges = append(badges, badge)
+	}
+
+	// Sort badges by user, exercise type, then priority (best first)
+	sort.Slice(badges, func(i, j int) bool {
+		if badges[i].UserName != badges[j].UserName {
+			return badges[i].UserName < badges[j].UserName
+		}
+		if badges[i].ExerciseType != badges[j].ExerciseType {
+			return badges[i].ExerciseType < badges[j].ExerciseType
+		}
+		// Reconstruct badge key for priority comparison
+		keyI := badges[i].BadgeType
+		if badges[i].IsTenTables {
+			keyI += "10"
+		}
+		keyJ := badges[j].BadgeType
+		if badges[j].IsTenTables {
+			keyJ += "10"
+		}
+		return badgePriority[keyI] > badgePriority[keyJ]
+	})
+
+	if badges == nil {
+		badges = []UserBadge{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(badges)
 }
 
 func getUserBestScore(w http.ResponseWriter, r *http.Request) {
@@ -378,7 +660,46 @@ func postResult(w http.ResponseWriter, r *http.Request) {
 //go:embed static/*
 var staticFiles embed.FS
 
+func loadConfig(configPath string) error {
+	// Set defaults
+	config = Config{
+		HTTPConfig: HTTPConfig{
+			Port:        "8080",
+			MetricsPort: "9090",
+		},
+		DBConfig: DBConfig{
+			DBPath: "./flashcards.db",
+		},
+	}
+
+	// Try to load config file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			slog.Info("No config file found, using defaults", "path", configPath)
+			return nil
+		}
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	if err := toml.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("failed to parse config file: %w", err)
+	}
+	slog.Info("Config loaded", "path", configPath)
+
+	return nil
+}
+
 func main() {
+	// Parse command line flags
+	configPath := flag.String("config", "config.toml", "Path to configuration file")
+	flag.Parse()
+
+	// Load configuration
+	if err := loadConfig(*configPath); err != nil {
+		panic(fmt.Sprintf("Failed to load configuration: %v", err))
+	}
+
 	// Initialize SQLite database
 	if err := initDB(); err != nil {
 		panic(fmt.Sprintf("Failed to initialize database: %v", err))
@@ -407,8 +728,12 @@ func main() {
 	http.HandleFunc("/api/user-best", getUserBestScore)
 	http.HandleFunc("/api/user-error", postUserError)
 	http.HandleFunc("/api/result", postResult)
+	http.HandleFunc("/api/scores", getAllScores)
+	http.HandleFunc("/api/attempts", getAllAttempts)
+	http.HandleFunc("/api/badges", getBadges)
 
-	port := 8080
-	println("Server is running on port", port)
-	http.ListenAndServe(":"+strconv.Itoa(port), nil)
+	slog.Info("Server starting", "port", config.HTTPConfig.Port)
+	if err := http.ListenAndServe(":"+config.HTTPConfig.Port, nil); err != nil {
+		slog.Error("Server failed", "error", err)
+	}
 }

@@ -1,0 +1,9 @@
+# Supermaths Configuration File
+
+[httpconfig]
+port = "8080"
+metricsport = "9090"
+
+[dbconfig]
+# SQLite database file path
+dbpath = "./flashcards.db"

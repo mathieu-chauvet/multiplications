@@ -180,6 +180,25 @@ h2 {
     margin: 20px 0;
 }
 
+.scores-link {
+    margin-top: 25px;
+    padding-top: 20px;
+    border-top: 2px dashed #ddd;
+}
+
+.scores-link a {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: bold;
+    font-size: 1.1em;
+    transition: color 0.3s ease;
+}
+
+.scores-link a:hover {
+    color: #764ba2;
+    text-decoration: underline;
+}
+
 #unselect-all {
     padding: 10px 25px;
     font-size: 1em;
