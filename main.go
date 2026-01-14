@@ -208,29 +208,31 @@ type BestScore struct {
 	Total int `json:"total"`
 }
 
-// GET /api/scores - Returns all users' scores
+// GET /api/scores - Returns all users' best scores (only completed exercises with 40 questions)
 type UserScore struct {
 	UserName       string  `json:"user_name"`
 	ExerciseType   string  `json:"exercise_type"`
 	BestScore      int     `json:"best_score"`
 	BestTotal      int     `json:"best_total"`
-	BestPercentage float64 `json:"best_percentage"`
-	TotalAttempts  int     `json:"total_attempts"`
-	LastAttempt    string  `json:"last_attempt"`
+	BestMeanTime   float64 `json:"best_mean_time"`
+	CompositeScore float64 `json:"composite_score"`
 }
 
 func getAllScores(w http.ResponseWriter, r *http.Request) {
+	// Only get completed exercises (total = 40)
+	// For each user/exercise, find the best result based on:
+	// 1. Highest score (primary)
+	// 2. Lowest mean time (secondary, for tiebreaker)
 	rows, err := db.Query(`
 		SELECT
 			user_name,
 			exercise_type,
-			MAX(CAST(score AS REAL) / NULLIF(total, 0)) as best_percentage,
-			COUNT(*) as total_attempts,
-			MAX(created_at) as last_attempt
+			score,
+			total,
+			COALESCE(mean_time_seconds, 999) as mean_time
 		FROM user_results
-		WHERE total > 0
-		GROUP BY user_name, exercise_type
-		ORDER BY best_percentage DESC, user_name ASC
+		WHERE total = 40
+		ORDER BY user_name, exercise_type, score DESC, mean_time_seconds ASC
 	`)
 	if err != nil {
 		slog.Error("Failed to query scores", "error", err)
@@ -239,32 +241,48 @@ func getAllScores(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var scores []UserScore
+	// Track best score per user/exercise combination
+	bestScores := make(map[string]UserScore)
+
 	for rows.Next() {
-		var us UserScore
-		var bestPercentage sql.NullFloat64
-		if err := rows.Scan(&us.UserName, &us.ExerciseType, &bestPercentage, &us.TotalAttempts, &us.LastAttempt); err != nil {
+		var userName, exerciseType string
+		var score, total int
+		var meanTime float64
+		if err := rows.Scan(&userName, &exerciseType, &score, &total, &meanTime); err != nil {
 			slog.Error("Failed to scan row", "error", err)
 			continue
 		}
-		if bestPercentage.Valid {
-			us.BestPercentage = bestPercentage.Float64 * 100
-		}
 
-		// Get the actual best score and total for this user/exercise
-		err := db.QueryRow(`
-			SELECT score, total
-			FROM user_results
-			WHERE user_name = ? AND exercise_type = ? AND total > 0
-			ORDER BY (CAST(score AS REAL) / total) DESC, score DESC
-			LIMIT 1
-		`, us.UserName, us.ExerciseType).Scan(&us.BestScore, &us.BestTotal)
-		if err != nil {
-			slog.Error("Failed to get best score details", "error", err)
-		}
+		key := userName + "|" + exerciseType
+		existing, exists := bestScores[key]
 
-		scores = append(scores, us)
+		// Calculate composite score: score * 1000 - meanTime * 10
+		// This ensures score is primary (36 > 35 always) and mean time is tiebreaker
+		compositeScore := float64(score)*1000 - meanTime*10
+
+		// Keep the best (highest composite score)
+		if !exists || compositeScore > existing.CompositeScore {
+			bestScores[key] = UserScore{
+				UserName:       userName,
+				ExerciseType:   exerciseType,
+				BestScore:      score,
+				BestTotal:      total,
+				BestMeanTime:   meanTime,
+				CompositeScore: compositeScore,
+			}
+		}
 	}
+
+	// Convert map to slice
+	var scores []UserScore
+	for _, score := range bestScores {
+		scores = append(scores, score)
+	}
+
+	// Sort by composite score (highest first)
+	sort.Slice(scores, func(i, j int) bool {
+		return scores[i].CompositeScore > scores[j].CompositeScore
+	})
 
 	if scores == nil {
 		scores = []UserScore{}
@@ -326,6 +344,7 @@ type UserBadge struct {
 	BestTotal    int    `json:"best_total"`
 	TablesCount  int    `json:"tables_count"`
 	IsTenTables  bool   `json:"is_ten_tables"`
+	Count        int    `json:"count"`
 }
 
 // calculateBadges returns all badges earned for a given score/tables combination
@@ -379,10 +398,13 @@ func getBadges(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	// Track best badge per user/exercise/category combination
+	// Track best badge and count per user/exercise/category combination
 	// Categories: "regular" (5+ tables), "ten" (10+ tables), "diamond" (12 tables + perfect)
 	// Key format: "userName|exerciseType|category"
 	badgeMap := make(map[string]UserBadge)
+	// Count occurrences of each specific badge type per user/exercise
+	// Key format: "userName|exerciseType|badgeType" (e.g., "Alice|mul|gold" or "Alice|mul|gold10")
+	badgeCounts := make(map[string]int)
 
 	// Badge priority within each category (higher = better)
 	badgePriority := map[string]int{
@@ -422,6 +444,10 @@ func getBadges(w http.ResponseWriter, r *http.Request) {
 				category = "ten"
 			}
 
+			// Count this specific badge occurrence
+			countKey := userName + "|" + exerciseType + "|" + badgeType
+			badgeCounts[countKey]++
+
 			// Key by user + exercise + category (not individual badge type)
 			// This ensures only the best badge per category is kept
 			key := userName + "|" + exerciseType + "|" + category
@@ -443,6 +469,18 @@ func getBadges(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+	}
+
+	// Add counts to badges
+	for key, badge := range badgeMap {
+		// Reconstruct the badge type key for counting
+		badgeTypeKey := badge.BadgeType
+		if badge.IsTenTables {
+			badgeTypeKey += "10"
+		}
+		countKey := badge.UserName + "|" + badge.ExerciseType + "|" + badgeTypeKey
+		badge.Count = badgeCounts[countKey]
+		badgeMap[key] = badge
 	}
 
 	// Convert map to slice and sort by priority

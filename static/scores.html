@@ -271,6 +271,38 @@
             transform: scale(1.15);
         }
 
+        .badge-with-count {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .badge-count {
+            font-size: 11px;
+            font-weight: bold;
+            color: #667eea;
+            background: #e8eaff;
+            padding: 1px 6px;
+            border-radius: 8px;
+        }
+
+        .player-cell {
+            vertical-align: middle;
+        }
+
+        .player-name {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .player-points {
+            font-size: 12px;
+            color: #667eea;
+            font-weight: bold;
+            margin-top: 2px;
+        }
+
         /* Badge legend styles */
         .badges-legend {
             background: white;
@@ -330,6 +362,17 @@
         .legend-desc {
             color: #555;
             font-size: 14px;
+        }
+
+        .legend-points {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-left: 5px;
         }
 
         .legend-symbols-grid {
@@ -405,15 +448,15 @@
                 <div class="legend-items">
                     <div class="legend-item">
                         <span id="legend-bronze" class="legend-badge-svg"></span>
-                        <span class="legend-desc"><strong>Bronze</strong> - 36/40 ou plus avec au moins 5 tables</span>
+                        <span class="legend-desc"><strong>Bronze</strong> - 36/40 ou plus avec au moins 5 tables <span class="legend-points">10 pts</span></span>
                     </div>
                     <div class="legend-item">
                         <span id="legend-silver" class="legend-badge-svg"></span>
-                        <span class="legend-desc"><strong>Argent</strong> - 38/40 ou plus avec au moins 5 tables</span>
+                        <span class="legend-desc"><strong>Argent</strong> - 38/40 ou plus avec au moins 5 tables <span class="legend-points">20 pts</span></span>
                     </div>
                     <div class="legend-item">
                         <span id="legend-gold" class="legend-badge-svg"></span>
-                        <span class="legend-desc"><strong>Or</strong> - 40/40 (score parfait) avec au moins 5 tables</span>
+                        <span class="legend-desc"><strong>Or</strong> - 40/40 (score parfait) avec au moins 5 tables <span class="legend-points">40 pts</span></span>
                     </div>
                 </div>
             </div>
@@ -424,15 +467,15 @@
                 <div class="legend-items">
                     <div class="legend-item">
                         <span id="legend-bronze10" class="legend-badge-svg"></span>
-                        <span class="legend-desc"><strong>Bronze 10</strong> - 36/40 ou plus avec au moins 10 tables</span>
+                        <span class="legend-desc"><strong>Bronze 10</strong> - 36/40 ou plus avec au moins 10 tables <span class="legend-points">10 pts</span></span>
                     </div>
                     <div class="legend-item">
                         <span id="legend-silver10" class="legend-badge-svg"></span>
-                        <span class="legend-desc"><strong>Argent 10</strong> - 38/40 ou plus avec au moins 10 tables</span>
+                        <span class="legend-desc"><strong>Argent 10</strong> - 38/40 ou plus avec au moins 10 tables <span class="legend-points">20 pts</span></span>
                     </div>
                     <div class="legend-item">
                         <span id="legend-gold10" class="legend-badge-svg"></span>
-                        <span class="legend-desc"><strong>Or 10</strong> - 40/40 (score parfait) avec au moins 10 tables</span>
+                        <span class="legend-desc"><strong>Or 10</strong> - 40/40 (score parfait) avec au moins 10 tables <span class="legend-points">40 pts</span></span>
                     </div>
                 </div>
             </div>
@@ -442,7 +485,7 @@
                 <div class="legend-items">
                     <div class="legend-item">
                         <span id="legend-diamond" class="legend-badge-svg"></span>
-                        <span class="legend-desc"><strong>Diamant</strong> - 40/40 (score parfait) avec les 12 tables !</span>
+                        <span class="legend-desc"><strong>Diamant</strong> - 40/40 (score parfait) avec les 12 tables ! <span class="legend-points">80 pts</span></span>
                     </div>
                 </div>
             </div>
@@ -564,7 +607,7 @@ function displayScores(scores) {
     }
 
     if (filteredScores.length === 0) {
-        container.innerHTML = '<p class="no-scores">Aucun score pour le moment. Soyez le premier !</p>';
+        container.innerHTML = '<p class="no-scores">Aucun score pour le moment. Complète un exercice de 40 questions pour apparaitre ici !</p>';
         return;
     }
 
@@ -575,8 +618,8 @@ function displayScores(scores) {
                     <th>#</th>
                     <th>Joueur</th>
                     <th>Exercice</th>
-                    <th>Meilleur score</th>
-                    <th>Essais</th>
+                    <th>Score</th>
+                    <th>Temps moy.</th>
                 </tr>
             </thead>
             <tbody>
@@ -590,15 +633,18 @@ function displayScores(scores) {
         else if (rank === 2) { rankClass = 'rank-2'; rankDisplay = '🥈'; }
         else if (rank === 3) { rankClass = 'rank-3'; rankDisplay = '🥉'; }
 
-        const badgeClass = getScoreBadgeClass(score.best_percentage);
+        // Calculate percentage for badge class (score out of 40)
+        const percentage = (score.best_score / score.best_total) * 100;
+        const badgeClass = getScoreBadgeClass(percentage);
+        const meanTimeDisplay = score.best_mean_time < 999 ? score.best_mean_time.toFixed(1) + 's' : '-';
 
         html += `
             <tr>
                 <td><span class="rank ${rankClass}">${rankDisplay}</span></td>
                 <td>${escapeHtml(score.user_name)}</td>
                 <td><span class="exercise-type type-${score.exercise_type}">${getExerciseTypeName(score.exercise_type)}</span></td>
-                <td><span class="score-badge ${badgeClass}">${score.best_score}/${score.best_total} (${Math.round(score.best_percentage)}%)</span></td>
-                <td>${score.total_attempts}</td>
+                <td><span class="score-badge ${badgeClass}">${score.best_score}/${score.best_total}</span></td>
+                <td><span class="time-badge">${meanTimeDisplay}</span></td>
             </tr>
         `;
     });
@@ -816,20 +862,25 @@ function displayBadges(badges) {
         badgesByUser[badge.user_name].push(badge);
     });
 
-    // Sort users by their best badge (diamond > gold10 > gold > silver10 > silver > bronze10 > bronze)
-    function getBadgePriority(badge) {
-        const basePriority = { 'diamond': 7, 'gold': 5, 'silver': 3, 'bronze': 1 };
-        let priority = basePriority[badge.badge_type] || 0;
-        // 10-tables badges get +1 priority (gold10 = 6, silver10 = 4, bronze10 = 2)
-        if (badge.is_ten_tables) priority += 1;
-        return priority;
+    // Calculate total points for each user
+    // Points: bronze = 10, silver = 20, gold = 40, diamond = 80
+    // Multiplied by the count of each badge
+    function getBadgePoints(badge) {
+        const basePoints = { 'bronze': 10, 'silver': 20, 'gold': 40, 'diamond': 80 };
+        const points = basePoints[badge.badge_type] || 0;
+        const count = badge.count || 1;
+        return points * count;
     }
+
+    function getUserTotalPoints(userBadges) {
+        return userBadges.reduce((total, badge) => total + getBadgePoints(badge), 0);
+    }
+
+    // Sort users by total points (highest first)
     const sortedUsers = Object.keys(badgesByUser).sort((a, b) => {
-        const maxA = Math.max(...badgesByUser[a].map(badge => getBadgePriority(badge)));
-        const maxB = Math.max(...badgesByUser[b].map(badge => getBadgePriority(badge)));
-        if (maxB !== maxA) return maxB - maxA;
-        // If same max badge, sort by number of badges
-        return badgesByUser[b].length - badgesByUser[a].length;
+        const pointsA = getUserTotalPoints(badgesByUser[a]);
+        const pointsB = getUserTotalPoints(badgesByUser[b]);
+        return pointsB - pointsA;
     });
 
     let html = `
@@ -855,14 +906,21 @@ function displayBadges(badges) {
             return (b.is_ten_tables ? 1 : 0) - (a.is_ten_tables ? 1 : 0);
         });
 
+        const totalPoints = getUserTotalPoints(userBadges);
+
         const badgesHtml = userBadges.map(badge => {
             const tenTablesText = badge.is_ten_tables ? ' (10 tables)' : '';
-            return `<span class="badge-svg-container" title="${getBadgeName(badge.badge_type)}${tenTablesText} - ${getExerciseTypeName(badge.exercise_type)} (${badge.best_score}/${badge.best_total})">${createBadgeSVG(badge.badge_type, badge.exercise_type, badge.is_ten_tables)}</span>`;
+            const countText = badge.count > 1 ? ` x${badge.count}` : '';
+            const countDisplay = badge.count > 1 ? `<span class="badge-count">x${badge.count}</span>` : '';
+            return `<span class="badge-with-count" title="${getBadgeName(badge.badge_type)}${tenTablesText} - ${getExerciseTypeName(badge.exercise_type)} (${badge.best_score}/${badge.best_total})${countText}"><span class="badge-svg-container">${createBadgeSVG(badge.badge_type, badge.exercise_type, badge.is_ten_tables)}</span>${countDisplay}</span>`;
         }).join('');
 
         html += `
             <tr>
-                <td>${escapeHtml(userName)}</td>
+                <td class="player-cell">
+                    <div class="player-name">${escapeHtml(userName)}</div>
+                    <div class="player-points">${totalPoints} pts</div>
+                </td>
                 <td class="badges-cell">${badgesHtml}</td>
             </tr>
         `;
