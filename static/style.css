@@ -184,6 +184,10 @@ h2 {
     margin-top: 25px;
     padding-top: 20px;
     border-top: 2px dashed #ddd;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 20px;
 }
 
 .scores-link a {

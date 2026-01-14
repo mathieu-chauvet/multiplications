@@ -379,14 +379,14 @@ func getBadges(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	// Track best badge per user/exercise/badgeType combination
-	// Key format: "userName|exerciseType|badgeType"
+	// Track best badge per user/exercise/category combination
+	// Categories: "regular" (5+ tables), "ten" (10+ tables), "diamond" (12 tables + perfect)
+	// Key format: "userName|exerciseType|category"
 	badgeMap := make(map[string]UserBadge)
 
-	// Badge priority for comparison (higher = better)
+	// Badge priority within each category (higher = better)
 	badgePriority := map[string]int{
-		"diamond": 6, "gold10": 5, "gold": 4,
-		"silver10": 3, "silver": 2, "bronze10": 1, "bronze": 0,
+		"diamond": 4, "gold": 3, "silver": 2, "bronze": 1,
 	}
 
 	for rows.Next() {
@@ -409,19 +409,29 @@ func getBadges(w http.ResponseWriter, r *http.Request) {
 		earnedBadges := calculateBadges(score, total, tablesCount)
 
 		for _, badgeType := range earnedBadges {
-			// Determine base badge type for grouping (e.g., gold10 -> gold)
+			// Determine base badge type and category
 			baseBadge := badgeType
 			isTenTables := false
-			if len(badgeType) > 2 && badgeType[len(badgeType)-2:] == "10" {
+			category := "regular"
+
+			if badgeType == "diamond" {
+				category = "diamond"
+			} else if len(badgeType) > 2 && badgeType[len(badgeType)-2:] == "10" {
 				baseBadge = badgeType[:len(badgeType)-2]
 				isTenTables = true
+				category = "ten"
 			}
 
-			key := userName + "|" + exerciseType + "|" + badgeType
+			// Key by user + exercise + category (not individual badge type)
+			// This ensures only the best badge per category is kept
+			key := userName + "|" + exerciseType + "|" + category
 			existing, exists := badgeMap[key]
 
-			// Keep the best score for each badge type
-			if !exists || score > existing.BestScore {
+			// Keep the best badge within each category
+			currentPriority := badgePriority[baseBadge]
+			existingPriority := badgePriority[existing.BadgeType]
+
+			if !exists || currentPriority > existingPriority {
 				badgeMap[key] = UserBadge{
 					UserName:     userName,
 					ExerciseType: exerciseType,
@@ -449,16 +459,18 @@ func getBadges(w http.ResponseWriter, r *http.Request) {
 		if badges[i].ExerciseType != badges[j].ExerciseType {
 			return badges[i].ExerciseType < badges[j].ExerciseType
 		}
-		// Reconstruct badge key for priority comparison
-		keyI := badges[i].BadgeType
-		if badges[i].IsTenTables {
-			keyI += "10"
+		// Compare by priority (diamond > gold10 > gold > silver10 > silver > bronze10 > bronze)
+		getPriority := func(b UserBadge) int {
+			base := badgePriority[b.BadgeType]
+			if b.BadgeType == "diamond" {
+				return 100 // Diamond is always highest
+			}
+			if b.IsTenTables {
+				return base*10 + 5 // 10-tables variants are higher than regular
+			}
+			return base * 10
 		}
-		keyJ := badges[j].BadgeType
-		if badges[j].IsTenTables {
-			keyJ += "10"
-		}
-		return badgePriority[keyI] > badgePriority[keyJ]
+		return getPriority(badges[i]) > getPriority(badges[j])
 	})
 
 	if badges == nil {
