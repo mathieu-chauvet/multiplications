@@ -389,6 +389,56 @@
             color: #555;
         }
 
+        /* Specialist badge styles */
+        .specialist-badge-svg-container {
+            display: inline-block;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        .specialist-badge-svg-container:hover {
+            transform: scale(1.15);
+        }
+
+        .specialist-progress {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            font-size: 10px;
+            color: #888;
+        }
+
+        .specialist-progress-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ddd;
+        }
+
+        .specialist-progress-dot.filled {
+            background: #10b981;
+        }
+
+        .specialist-section {
+            margin-top: 15px;
+            padding-top: 10px;
+            border-top: 1px dashed #e5e7eb;
+        }
+
+        .specialist-label {
+            font-size: 11px;
+            color: #667eea;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .specialist-badges-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            align-items: center;
+        }
+
         @media (max-width: 600px) {
             .scores-table th, .scores-table td {
                 padding: 8px 5px;
@@ -491,6 +541,17 @@
             </div>
 
             <div class="legend-section">
+                <h3>Badge Sp&eacute;cialiste</h3>
+                <div class="legend-items">
+                    <div class="legend-item">
+                        <span id="legend-specialist" class="legend-badge-svg"></span>
+                        <span class="legend-desc"><strong>Sp&eacute;cialiste de table</strong> - S&eacute;lectionne UNE SEULE table et obtiens 10/10 trois fois de suite ! <span class="legend-points">15 pts</span></span>
+                    </div>
+                </div>
+                <p class="legend-note">Un badge sp&eacute;cialiste par table (1 &agrave; 12). Montre ta ma&icirc;trise d'une table sp&eacute;cifique !</p>
+            </div>
+
+            <div class="legend-section">
                 <h3>Symboles sur les badges</h3>
                 <div class="legend-symbols-grid">
                     <div class="legend-symbol-item">
@@ -519,17 +580,24 @@
 let allScores = [];
 let allAttempts = [];
 let allBadges = [];
+let allSpecialistBadges = [];
 
 async function loadBadges() {
     try {
-        const response = await fetch('/api/badges');
-        if (response.ok) {
-            allBadges = await response.json();
-            displayBadges(allBadges);
-        } else {
-            document.getElementById('badges-content').innerHTML =
-                '<p class="no-scores">Erreur lors du chargement des badges</p>';
+        // Load both regular badges and specialist badges
+        const [badgesResponse, specialistResponse] = await Promise.all([
+            fetch('/api/badges'),
+            fetch('/api/specialist-badges')
+        ]);
+
+        if (badgesResponse.ok) {
+            allBadges = await badgesResponse.json();
         }
+        if (specialistResponse.ok) {
+            allSpecialistBadges = await specialistResponse.json();
+        }
+
+        displayBadges(allBadges);
     } catch (e) {
         console.error('Erreur:', e);
         document.getElementById('badges-content').innerHTML =
@@ -836,6 +904,70 @@ function createBadgeSVG(badgeType, exerciseType, isTenTables = false) {
     return svg;
 }
 
+// Create specialist badge SVG (star shape with table number)
+function createSpecialistBadgeSVG(tableNumber, exerciseType, isEarned = true) {
+    const uniqueId = ++badgeSvgCounter;
+
+    // Colors based on earned status
+    const colors = isEarned ? {
+        primary: '#fbbf24',    // Amber/gold
+        secondary: '#fde68a',
+        accent: '#f59e0b',
+        stroke: '#b45309',
+        text: '#78350f',
+        ribbon: '#10b981'      // Green for earned
+    } : {
+        primary: '#d1d5db',    // Gray for not earned
+        secondary: '#e5e7eb',
+        accent: '#9ca3af',
+        stroke: '#6b7280',
+        text: '#374151',
+        ribbon: '#9ca3af'
+    };
+
+    const gradId = `spec-grad-${uniqueId}`;
+    const symbol = getExerciseSymbol(exerciseType);
+
+    // Star-shaped badge with table number
+    const svg = `
+        <svg width="45" height="55" viewBox="0 0 45 55" xmlns="http://www.w3.org/2000/svg">
+            <!-- Ribbon -->
+            <path d="M13 0 L17 12 L22.5 0 L28 12 L32 0 L32 18 L13 18 Z" fill="${colors.ribbon}" />
+            <path d="M15 0 L18 10 L22.5 0 L27 10 L30 0 L30 16 L15 16 Z" fill="${isEarned ? '#059669' : '#6b7280'}" />
+
+            <!-- Star gradient -->
+            <defs>
+                <linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:${colors.secondary};stop-opacity:1" />
+                    <stop offset="50%" style="stop-color:${colors.primary};stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:${colors.accent};stop-opacity:1" />
+                </linearGradient>
+            </defs>
+
+            <!-- Star shape -->
+            <polygon points="22.5,18 26,28 37,28 28,35 31,46 22.5,40 14,46 17,35 8,28 19,28"
+                     fill="url(#${gradId})" stroke="${colors.stroke}" stroke-width="1.5"/>
+
+            <!-- Table number in center -->
+            <text x="22.5" y="36" text-anchor="middle" font-size="12" font-weight="bold"
+                  fill="${colors.text}" font-family="Arial, sans-serif">${tableNumber}</text>
+
+            <!-- Exercise type symbol at bottom -->
+            <circle cx="37" cy="48" r="7" fill="${isEarned ? '#667eea' : '#9ca3af'}" stroke="white" stroke-width="1"/>
+            <text x="37" y="52" text-anchor="middle" font-size="9" font-weight="bold"
+                  fill="white" font-family="Arial, sans-serif">${symbol}</text>
+
+            ${isEarned ? `
+            <!-- Sparkles for earned badge -->
+            <circle cx="10" cy="25" r="1.5" fill="white" opacity="0.8"/>
+            <circle cx="35" cy="22" r="1" fill="white" opacity="0.7"/>
+            ` : ''}
+        </svg>
+    `;
+
+    return svg;
+}
+
 function displayBadges(badges) {
     const container = document.getElementById('badges-content');
     const filter = document.getElementById('exercise-filter').value;
@@ -863,23 +995,39 @@ function displayBadges(badges) {
     });
 
     // Calculate total points for each user
-    // Points: bronze = 10, silver = 20, gold = 40, diamond = 80
-    // Multiplied by the count of each badge
+    // Points: bronze = 10, silver = 20, gold = 40, diamond = 80, specialist = 15
+    // Each badge type counts only once (count is ignored for points)
     function getBadgePoints(badge) {
         const basePoints = { 'bronze': 10, 'silver': 20, 'gold': 40, 'diamond': 80 };
-        const points = basePoints[badge.badge_type] || 0;
-        const count = badge.count || 1;
-        return points * count;
+        return basePoints[badge.badge_type] || 0;
     }
 
-    function getUserTotalPoints(userBadges) {
-        return userBadges.reduce((total, badge) => total + getBadgePoints(badge), 0);
+    function getUserTotalPoints(userBadges, userSpecialistBadges) {
+        const regularPoints = userBadges.reduce((total, badge) => total + getBadgePoints(badge), 0);
+        const specialistPoints = (userSpecialistBadges || []).filter(b => b.badge_earned).length * 15;
+        return regularPoints + specialistPoints;
     }
+
+    // Group specialist badges by user
+    const specialistByUser = {};
+    allSpecialistBadges.forEach(badge => {
+        if (!specialistByUser[badge.user_name]) {
+            specialistByUser[badge.user_name] = [];
+        }
+        specialistByUser[badge.user_name].push(badge);
+    });
+
+    // Include users who only have specialist badges
+    Object.keys(specialistByUser).forEach(userName => {
+        if (!badgesByUser[userName]) {
+            badgesByUser[userName] = [];
+        }
+    });
 
     // Sort users by total points (highest first)
     const sortedUsers = Object.keys(badgesByUser).sort((a, b) => {
-        const pointsA = getUserTotalPoints(badgesByUser[a]);
-        const pointsB = getUserTotalPoints(badgesByUser[b]);
+        const pointsA = getUserTotalPoints(badgesByUser[a], specialistByUser[a]);
+        const pointsB = getUserTotalPoints(badgesByUser[b], specialistByUser[b]);
         return pointsB - pointsA;
     });
 
@@ -896,6 +1044,8 @@ function displayBadges(badges) {
 
     sortedUsers.forEach(userName => {
         const userBadges = badgesByUser[userName];
+        const userSpecialist = specialistByUser[userName] || [];
+
         // Sort badges by exercise type, then by 10-tables (10-tables first)
         const exerciseOrder = ['mul', 'add', 'sub', 'fact'];
         userBadges.sort((a, b) => {
@@ -906,7 +1056,7 @@ function displayBadges(badges) {
             return (b.is_ten_tables ? 1 : 0) - (a.is_ten_tables ? 1 : 0);
         });
 
-        const totalPoints = getUserTotalPoints(userBadges);
+        const totalPoints = getUserTotalPoints(userBadges, userSpecialist);
 
         const badgesHtml = userBadges.map(badge => {
             const tenTablesText = badge.is_ten_tables ? ' (10 tables)' : '';
@@ -915,13 +1065,38 @@ function displayBadges(badges) {
             return `<span class="badge-with-count" title="${getBadgeName(badge.badge_type)}${tenTablesText} - ${getExerciseTypeName(badge.exercise_type)} (${badge.best_score}/${badge.best_total})${countText}"><span class="badge-svg-container">${createBadgeSVG(badge.badge_type, badge.exercise_type, badge.is_ten_tables)}</span>${countDisplay}</span>`;
         }).join('');
 
+        // Filter specialist badges based on exercise filter
+        let filteredSpecialist = userSpecialist;
+        if (filter !== 'all') {
+            filteredSpecialist = userSpecialist.filter(b => b.exercise_type === filter);
+        }
+
+        // Generate specialist badges HTML (only earned ones, sorted by table number)
+        const earnedSpecialist = filteredSpecialist.filter(b => b.badge_earned).sort((a, b) => a.table_number - b.table_number);
+        const specialistHtml = earnedSpecialist.map(badge => {
+            return `<span class="specialist-badge-svg-container" title="Sp&eacute;cialiste table de ${badge.table_number} - ${getExerciseTypeName(badge.exercise_type)}">${createSpecialistBadgeSVG(badge.table_number, badge.exercise_type, true)}</span>`;
+        }).join('');
+
+        // Combine regular and specialist badges
+        let allBadgesHtml = badgesHtml;
+        if (specialistHtml) {
+            if (allBadgesHtml) {
+                allBadgesHtml += `<div class="specialist-section"><div class="specialist-label">Sp&eacute;cialiste</div><div class="specialist-badges-row">${specialistHtml}</div></div>`;
+            } else {
+                allBadgesHtml = `<div class="specialist-badges-row">${specialistHtml}</div>`;
+            }
+        }
+
+        // Skip users with no badges to display
+        if (!allBadgesHtml) return;
+
         html += `
             <tr>
                 <td class="player-cell">
                     <div class="player-name">${escapeHtml(userName)}</div>
                     <div class="player-points">${totalPoints} pts</div>
                 </td>
-                <td class="badges-cell">${badgesHtml}</td>
+                <td class="badges-cell">${allBadgesHtml}</td>
             </tr>
         `;
     });
@@ -955,6 +1130,12 @@ function populateLegendBadges() {
             el.innerHTML = createBadgeSVG(badge.type, badge.exercise, badge.tenTables);
         }
     });
+
+    // Specialist badge example
+    const specialistEl = document.getElementById('legend-specialist');
+    if (specialistEl) {
+        specialistEl.innerHTML = createSpecialistBadgeSVG(7, 'mul', true);
+    }
 
     // Symbol examples (using gold as the badge type to show the symbol clearly)
     const symbolBadges = [

@@ -94,7 +94,32 @@ function showCelebration(isPerfect, isNewRecord) {
     console.log('Elements found:', { overlay: !!overlay, message: !!message, gif: !!gif, subtitle: !!subtitle, closeBtn: !!closeBtn });
 
     message.textContent = getRandomCongratsMessage();
-    gif.src = getRandomCelebrationGif();
+
+    // Hide GIF while loading and show when ready
+    gif.style.opacity = '0';
+    gif.style.transition = 'opacity 0.3s';
+
+    const gifUrl = getRandomCelebrationGif();
+    console.log('Loading GIF:', gifUrl);
+
+    gif.onload = function() {
+        console.log('GIF loaded successfully');
+        gif.style.opacity = '1';
+    };
+
+    gif.onerror = function() {
+        console.error('Failed to load GIF:', gifUrl);
+        // Try a different GIF on error
+        const fallbackUrl = getRandomCelebrationGif();
+        if (fallbackUrl !== gifUrl) {
+            gif.src = fallbackUrl;
+        } else {
+            // Hide the gif element if loading fails
+            gif.style.display = 'none';
+        }
+    };
+
+    gif.src = gifUrl;
 
     if (isPerfect) {
         subtitle.textContent = "SCORE PARFAIT ! Tu as tout bon !";
@@ -107,6 +132,7 @@ function showCelebration(isPerfect, isNewRecord) {
     // Fermer la célébration
     const closeHandler = function() {
         overlay.style.display = 'none';
+        gif.style.display = 'block'; // Reset for next time
         closeBtn.removeEventListener('click', closeHandler);
     };
     closeBtn.addEventListener('click', closeHandler);
@@ -115,6 +141,7 @@ function showCelebration(isPerfect, isNewRecord) {
     overlay.addEventListener('click', function(e) {
         if (e.target === overlay) {
             overlay.style.display = 'none';
+            gif.style.display = 'block'; // Reset for next time
         }
     });
 }

@@ -110,6 +110,33 @@ func initDB() error {
 		return fmt.Errorf("failed to create user_results index: %w", err)
 	}
 
+	// Create specialist_badges table for tracking progress toward specialist badges
+	// A specialist badge is earned when a user gets 10/10 three times in a row on a single table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS specialist_badges (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_name TEXT NOT NULL,
+			exercise_type TEXT NOT NULL,
+			table_number INTEGER NOT NULL,
+			consecutive_perfect INTEGER DEFAULT 0,
+			badge_earned INTEGER DEFAULT 0,
+			earned_at DATETIME,
+			UNIQUE(user_name, exercise_type, table_number)
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create specialist_badges table: %w", err)
+	}
+
+	// Create index for specialist badges lookup
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_specialist_badges_lookup
+		ON specialist_badges(user_name, exercise_type)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create specialist_badges index: %w", err)
+	}
+
 	return nil
 }
 
@@ -519,6 +546,51 @@ func getBadges(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(badges)
 }
 
+// GET /api/specialist-badges - Returns earned specialist badges for all users
+type SpecialistBadge struct {
+	UserName           string `json:"user_name"`
+	ExerciseType       string `json:"exercise_type"`
+	TableNumber        int    `json:"table_number"`
+	ConsecutivePerfect int    `json:"consecutive_perfect"`
+	BadgeEarned        bool   `json:"badge_earned"`
+	EarnedAt           string `json:"earned_at,omitempty"`
+}
+
+func getSpecialistBadges(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query(`
+		SELECT user_name, exercise_type, table_number, consecutive_perfect, badge_earned, COALESCE(earned_at, '')
+		FROM specialist_badges
+		ORDER BY user_name, exercise_type, table_number
+	`)
+	if err != nil {
+		slog.Error("Failed to query specialist badges", "error", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var badges []SpecialistBadge
+	for rows.Next() {
+		var b SpecialistBadge
+		var earnedAt string
+		var badgeEarnedInt int
+		if err := rows.Scan(&b.UserName, &b.ExerciseType, &b.TableNumber, &b.ConsecutivePerfect, &badgeEarnedInt, &earnedAt); err != nil {
+			slog.Error("Failed to scan row", "error", err)
+			continue
+		}
+		b.BadgeEarned = badgeEarnedInt == 1
+		b.EarnedAt = earnedAt
+		badges = append(badges, b)
+	}
+
+	if badges == nil {
+		badges = []SpecialistBadge{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(badges)
+}
+
 func getUserBestScore(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.URL.Query().Get("name"))
 	exerciseType := strings.TrimSpace(r.URL.Query().Get("type"))
@@ -603,6 +675,77 @@ func postUserError(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
+// updateSpecialistBadgeProgress checks if a user qualifies for specialist badge progress
+// Requirements: single table selected, perfect score (10/10), track 3 consecutive perfects
+func updateSpecialistBadgeProgress(userName, exerciseType string, tables []int, score, total int) {
+	// Only track if exactly one table is selected
+	if len(tables) != 1 {
+		return
+	}
+
+	tableNumber := tables[0]
+
+	// For a single table, we expect 10 questions (table x 1-10)
+	// Perfect score means score == total == 10
+	isPerfect := score == total && total == 10
+
+	if isPerfect {
+		// Increment consecutive count or insert new record
+		_, err := db.Exec(`
+			INSERT INTO specialist_badges (user_name, exercise_type, table_number, consecutive_perfect, badge_earned)
+			VALUES (?, ?, ?, 1, 0)
+			ON CONFLICT(user_name, exercise_type, table_number)
+			DO UPDATE SET consecutive_perfect =
+				CASE
+					WHEN badge_earned = 1 THEN consecutive_perfect
+					ELSE consecutive_perfect + 1
+				END
+		`, userName, exerciseType, tableNumber)
+		if err != nil {
+			slog.Error("Failed to update specialist badge progress", "error", err)
+			return
+		}
+
+		// Check if badge should be earned (3 consecutive perfects)
+		var consecutiveCount int
+		var badgeEarned int
+		err = db.QueryRow(`
+			SELECT consecutive_perfect, badge_earned
+			FROM specialist_badges
+			WHERE user_name = ? AND exercise_type = ? AND table_number = ?
+		`, userName, exerciseType, tableNumber).Scan(&consecutiveCount, &badgeEarned)
+
+		if err != nil {
+			slog.Error("Failed to check specialist badge status", "error", err)
+			return
+		}
+
+		// Award badge if 3 consecutive perfects and not already earned
+		if consecutiveCount >= 3 && badgeEarned == 0 {
+			_, err = db.Exec(`
+				UPDATE specialist_badges
+				SET badge_earned = 1, earned_at = CURRENT_TIMESTAMP
+				WHERE user_name = ? AND exercise_type = ? AND table_number = ?
+			`, userName, exerciseType, tableNumber)
+			if err != nil {
+				slog.Error("Failed to award specialist badge", "error", err)
+			} else {
+				slog.Info("Specialist badge awarded", "user", userName, "type", exerciseType, "table", tableNumber)
+			}
+		}
+	} else {
+		// Reset consecutive count on non-perfect score (only if badge not yet earned)
+		_, err := db.Exec(`
+			UPDATE specialist_badges
+			SET consecutive_perfect = 0
+			WHERE user_name = ? AND exercise_type = ? AND table_number = ? AND badge_earned = 0
+		`, userName, exerciseType, tableNumber)
+		if err != nil {
+			slog.Error("Failed to reset specialist badge progress", "error", err)
+		}
+	}
+}
+
 // Result handling for posting to Google Sheets via backend
 // Request payload from frontend
 type resultRequest struct {
@@ -663,6 +806,9 @@ func postResult(w http.ResponseWriter, r *http.Request) {
 		// Continue anyway to not block the user
 	}
 
+	// Check for specialist badge progress (single table, 10/10 three times in a row)
+	updateSpecialistBadgeProgress(name, exerciseType, req.Tables, req.Score, req.Total)
+
 	webhook := os.Getenv("SHEETS_WEBHOOK_URL")
 	if webhook == "" {
 		// If not configured, succeed without forwarding to avoid blocking UI
@@ -707,7 +853,7 @@ func postResult(w http.ResponseWriter, r *http.Request) {
 	slog.Info("Successfully posted to google sheets", "payload", string(buf))
 }
 
-//go:embed static/*
+//go:embed static/* static/gifs/* static/icons/*
 var staticFiles embed.FS
 
 func loadConfig(configPath string) error {
@@ -781,6 +927,7 @@ func main() {
 	http.HandleFunc("/api/scores", getAllScores)
 	http.HandleFunc("/api/attempts", getAllAttempts)
 	http.HandleFunc("/api/badges", getBadges)
+	http.HandleFunc("/api/specialist-badges", getSpecialistBadges)
 
 	slog.Info("Server starting", "port", config.HTTPConfig.Port)
 	if err := http.ListenAndServe(":"+config.HTTPConfig.Port, nil); err != nil {
