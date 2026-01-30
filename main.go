@@ -246,7 +246,7 @@ type UserScore struct {
 }
 
 func getAllScores(w http.ResponseWriter, r *http.Request) {
-	// Only get completed exercises (total = 40)
+	// Only get completed exercises (total = 40 for standard, 100 or 200 for megamix)
 	// For each user/exercise, find the best result based on:
 	// 1. Highest score (primary)
 	// 2. Lowest mean time (secondary, for tiebreaker)
@@ -258,7 +258,7 @@ func getAllScores(w http.ResponseWriter, r *http.Request) {
 			total,
 			COALESCE(mean_time_seconds, 999) as mean_time
 		FROM user_results
-		WHERE total = 40
+		WHERE total = 40 OR (exercise_type = 'mega' AND total IN (100, 200))
 		ORDER BY user_name, exercise_type, score DESC, mean_time_seconds ASC
 	`)
 	if err != nil {
@@ -375,9 +375,34 @@ type UserBadge struct {
 }
 
 // calculateBadges returns all badges earned for a given score/tables combination
-func calculateBadges(score, total, tablesCount int) []string {
+func calculateBadges(score, total, tablesCount int, exerciseType string) []string {
 	var badges []string
 
+	// Megamix has different thresholds (100 or 200 questions, always 12 tables)
+	if exerciseType == "mega" {
+		// Diamond Megamix: 200/200 (the ultimate challenge)
+		if total == 200 && score == 200 {
+			badges = append(badges, "diamond")
+			badges = append(badges, "gold")
+			return badges
+		}
+
+		// Regular Megamix badges (100 questions)
+		if total != 100 {
+			return badges // No badge if not 100 or 200 questions
+		}
+		// Megamix badges (100 questions) - no diamond for 100/100
+		if score == 100 {
+			badges = append(badges, "gold")
+		} else if score >= 95 {
+			badges = append(badges, "silver")
+		} else if score >= 90 {
+			badges = append(badges, "bronze")
+		}
+		return badges
+	}
+
+	// Standard exercises (40 questions)
 	if tablesCount < 5 {
 		return badges // No badge if less than 5 tables
 	}
@@ -411,11 +436,16 @@ func calculateBadges(score, total, tablesCount int) []string {
 }
 
 func getBadges(w http.ResponseWriter, r *http.Request) {
-	// Get all results with 40 total questions and at least 36 score
+	// Get all results that qualify for badges:
+	// - Standard exercises: 40 total questions and at least 36 score
+	// - Megamix: 100 total questions and at least 90 score
+	// - Diamond Megamix: 200 total questions and 200 score
 	rows, err := db.Query(`
 		SELECT user_name, exercise_type, score, total, COALESCE(tables, '')
 		FROM user_results
-		WHERE total = 40 AND score >= 36
+		WHERE (total = 40 AND score >= 36)
+		   OR (exercise_type = 'mega' AND total = 100 AND score >= 90)
+		   OR (exercise_type = 'mega' AND total = 200 AND score = 200)
 		ORDER BY user_name, exercise_type, score DESC
 	`)
 	if err != nil {
@@ -455,7 +485,7 @@ func getBadges(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		earnedBadges := calculateBadges(score, total, tablesCount)
+		earnedBadges := calculateBadges(score, total, tablesCount, exerciseType)
 
 		for _, badgeType := range earnedBadges {
 			// Determine base badge type and category

@@ -110,6 +110,7 @@
         .type-add { background: #e8f5e9; color: #388e3c; }
         .type-sub { background: #fff3e0; color: #f57c00; }
         .type-fact { background: #fce4ec; color: #c2185b; }
+        .type-mega { background: linear-gradient(135deg, #e8f5e9, #e3f2fd, #fff3e0, #fce4ec); color: #5e35b1; font-weight: bold; }
 
         .no-scores {
             text-align: center;
@@ -475,6 +476,7 @@
                 <option value="add">Additions</option>
                 <option value="sub">Soustractions</option>
                 <option value="fact">Exo Mama</option>
+                <option value="mega">Megamix</option>
             </select>
         </div>
 
@@ -552,6 +554,36 @@
             </div>
 
             <div class="legend-section">
+                <h3>Badges Megamix (100 questions)</h3>
+                <p class="legend-note">100 questions m&eacute;lang&eacute;es de tous les types d'exercices.</p>
+                <div class="legend-items">
+                    <div class="legend-item">
+                        <span id="legend-mega-bronze" class="legend-badge-svg"></span>
+                        <span class="legend-desc"><strong>Bronze</strong> - 90/100 ou plus <span class="legend-points">10 pts</span></span>
+                    </div>
+                    <div class="legend-item">
+                        <span id="legend-mega-silver" class="legend-badge-svg"></span>
+                        <span class="legend-desc"><strong>Argent</strong> - 95/100 ou plus <span class="legend-points">20 pts</span></span>
+                    </div>
+                    <div class="legend-item">
+                        <span id="legend-mega-gold" class="legend-badge-svg"></span>
+                        <span class="legend-desc"><strong>Or</strong> - 100/100 (score parfait) <span class="legend-points">40 pts</span></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <h3>Diamant Megamix (200 questions)</h3>
+                <p class="legend-note">Le d&eacute;fi ultime ! Apr&egrave;s un 100/100, tu peux tenter 100 questions de plus pour le Diamant !</p>
+                <div class="legend-items">
+                    <div class="legend-item">
+                        <span id="legend-mega-diamond" class="legend-badge-svg"></span>
+                        <span class="legend-desc"><strong>Diamant Megamix</strong> - 200/200 (100 + 100 parfaits) <span class="legend-points">80 pts</span></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="legend-section">
                 <h3>Symboles sur les badges</h3>
                 <div class="legend-symbols-grid">
                     <div class="legend-symbol-item">
@@ -569,6 +601,10 @@
                     <div class="legend-symbol-item">
                         <span id="legend-symbol-fact" class="legend-badge-svg"></span>
                         <span>Exo Mama</span>
+                    </div>
+                    <div class="legend-symbol-item">
+                        <span id="legend-symbol-mega" class="legend-badge-svg"></span>
+                        <span>Megamix</span>
                     </div>
                 </div>
             </div>
@@ -644,7 +680,8 @@ function getExerciseTypeName(type) {
         'mul': 'Multiplications',
         'add': 'Additions',
         'sub': 'Soustractions',
-        'fact': 'Exo Mama'
+        'fact': 'Exo Mama',
+        'mega': 'Megamix'
     };
     return names[type] || type;
 }
@@ -814,7 +851,8 @@ function getExerciseSymbol(exerciseType) {
         'mul': '×',
         'add': '+',
         'sub': '−',
-        'fact': '?'
+        'fact': '?',
+        'mega': 'M'
     };
     return symbols[exerciseType] || '?';
 }
@@ -1137,12 +1175,33 @@ function populateLegendBadges() {
         specialistEl.innerHTML = createSpecialistBadgeSVG(7, 'mul', true);
     }
 
+    // Megamix badges (100 questions)
+    const megaBadges = [
+        { id: 'legend-mega-bronze', type: 'bronze' },
+        { id: 'legend-mega-silver', type: 'silver' },
+        { id: 'legend-mega-gold', type: 'gold' },
+    ];
+
+    megaBadges.forEach(badge => {
+        const el = document.getElementById(badge.id);
+        if (el) {
+            el.innerHTML = createBadgeSVG(badge.type, 'mega', false);
+        }
+    });
+
+    // Diamond Megamix badge (200 questions)
+    const diamondMegaEl = document.getElementById('legend-mega-diamond');
+    if (diamondMegaEl) {
+        diamondMegaEl.innerHTML = createBadgeSVG('diamond', 'mega', false);
+    }
+
     // Symbol examples (using gold as the badge type to show the symbol clearly)
     const symbolBadges = [
         { id: 'legend-symbol-mul', exercise: 'mul' },
         { id: 'legend-symbol-add', exercise: 'add' },
         { id: 'legend-symbol-sub', exercise: 'sub' },
         { id: 'legend-symbol-fact', exercise: 'fact' },
+        { id: 'legend-symbol-mega', exercise: 'mega' },
     ];
 
     symbolBadges.forEach(badge => {

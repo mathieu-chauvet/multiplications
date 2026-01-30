@@ -8,9 +8,18 @@ let delayTimer; // Timer pour les délais entre les questions
 const TIME_LIMIT = 6000; // 6 secondes en millisecondes
 const TIME_LIMIT_FACT = 9000; // 9 secondes pour Exo Mama (factorisation)
 const MAX_OPERATIONS = 40; // Nombre maximum d'opérations par exercice
+const MAX_OPERATIONS_MEGA = 100; // Nombre d'opérations pour Megamix
+const MAX_OPERATIONS_DIAMOND = 200; // Nombre d'opérations pour le défi Diamant Megamix
+
+let isDiamondChallenge = false; // Indique si on est dans le défi Diamant
+let diamondChallengeScore = 0; // Score cumulé pour le défi Diamant
 
 // Retourne le temps limite en fonction du mode d'exercice
-function getTimeLimit() {
+function getTimeLimit(card) {
+    // Pour mega mode, vérifier le type de la carte
+    if (exerciseMode === 'mega' && card && card.type === 'fact') {
+        return TIME_LIMIT_FACT;
+    }
     return exerciseMode === 'fact' ? TIME_LIMIT_FACT : TIME_LIMIT;
 }
 let responseTimes = []; // Stocke les temps de réponse
@@ -83,8 +92,8 @@ async function fetchUserBestScore() {
 }
 
 // Affiche la célébration
-function showCelebration(isPerfect, isNewRecord) {
-    console.log('showCelebration called', { isPerfect, isNewRecord });
+function showCelebration(isPerfect, isNewRecord, isDiamondMegamix = false) {
+    console.log('showCelebration called', { isPerfect, isNewRecord, isDiamondMegamix });
     const overlay = document.getElementById('celebration-overlay');
     const message = document.getElementById('celebration-message');
     const gif = document.getElementById('celebration-gif');
@@ -93,7 +102,12 @@ function showCelebration(isPerfect, isNewRecord) {
 
     console.log('Elements found:', { overlay: !!overlay, message: !!message, gif: !!gif, subtitle: !!subtitle, closeBtn: !!closeBtn });
 
-    message.textContent = getRandomCongratsMessage();
+    // Message spécial pour le Diamant Megamix
+    if (isDiamondMegamix) {
+        message.textContent = "DIAMANT MEGAMIX !";
+    } else {
+        message.textContent = getRandomCongratsMessage();
+    }
 
     // Hide GIF while loading and show when ready
     gif.style.opacity = '0';
@@ -121,7 +135,9 @@ function showCelebration(isPerfect, isNewRecord) {
 
     gif.src = gifUrl;
 
-    if (isPerfect) {
+    if (isDiamondMegamix) {
+        subtitle.textContent = "INCROYABLE ! 200/200 - Tu es un champion ultime !";
+    } else if (isPerfect) {
         subtitle.textContent = "SCORE PARFAIT ! Tu as tout bon !";
     } else if (isNewRecord) {
         subtitle.textContent = "NOUVEAU RECORD PERSONNEL !";
@@ -292,6 +308,83 @@ function generateFlashcards(selectedTables) {
     return flashcards;
 }
 
+// Fonction pour générer les flashcards Megamix (mélange de tous les types)
+function generateMegamixFlashcards() {
+    const flashcards = [];
+    const allTables = [];
+    for (let i = 1; i <= 12; i++) {
+        allTables.push(i);
+    }
+
+    // Générer des multiplications
+    for (let i = 1; i <= 10; i++) {
+        allTables.forEach((table) => {
+            flashcards.push({
+                question: `${table} x ${i} = ?`,
+                answer: (table * i).toString(),
+                times_wrong: 0,
+                type: 'mul'
+            });
+        });
+    }
+
+    // Générer des additions
+    for (let i = 1; i <= 10; i++) {
+        allTables.forEach((table) => {
+            flashcards.push({
+                question: `${table} + ${i} = ?`,
+                answer: (table + i).toString(),
+                times_wrong: 0,
+                type: 'add'
+            });
+        });
+    }
+
+    // Générer des soustractions (sans résultats négatifs)
+    for (let i = 1; i <= 10; i++) {
+        allTables.forEach((table) => {
+            if (i <= table) {
+                flashcards.push({
+                    question: `${table} - ${i} = ?`,
+                    answer: (table - i).toString(),
+                    times_wrong: 0,
+                    type: 'sub'
+                });
+            } else {
+                flashcards.push({
+                    question: `${i} - ${table} = ?`,
+                    answer: (i - table).toString(),
+                    times_wrong: 0,
+                    type: 'sub'
+                });
+            }
+        });
+    }
+
+    // Générer des factorisations (produits uniques avec facteurs valides)
+    const productsSet = new Set();
+    for (let i = 1; i <= 10; i++) {
+        allTables.forEach((table) => {
+            const product = table * i;
+            if (!productsSet.has(product)) {
+                productsSet.add(product);
+                const validFactors = getFactorPairs(product);
+                if (validFactors.length > 0) {
+                    flashcards.push({
+                        question: `${product} = ? x ?`,
+                        answer: null,
+                        validFactors: validFactors,
+                        times_wrong: 0,
+                        type: 'fact'
+                    });
+                }
+            }
+        });
+    }
+
+    return flashcards;
+}
+
 // Fonction pour mélanger les flashcards
 function shuffleFlashcards() {
     for (let i = flashcards.length - 1; i > 0; i--) {
@@ -386,8 +479,11 @@ function displayFlashcard() {
     const answerInput = document.getElementById('answer');
     answerInput.value = '';
 
-    // Configurer le type d'entrée selon le mode
-    if (exerciseMode === 'fact') {
+    // Déterminer le type de question (pour mega mode, utiliser card.type)
+    const questionType = (exerciseMode === 'mega' && card.type) ? card.type : exerciseMode;
+
+    // Configurer le type d'entrée selon le type de question
+    if (questionType === 'fact') {
         answerInput.type = 'text';
         answerInput.inputMode = 'numeric';
         answerInput.placeholder = 'Ex: 3,4 ou 3x4';
@@ -427,7 +523,8 @@ function startTimer() {
     // Effacer tout timer existant
     clearInterval(timer);
 
-    let timeLeft = getTimeLimit() / 1000; // Convertir en secondes
+    const card = flashcards[currentCardIndex];
+    let timeLeft = getTimeLimit(card) / 1000; // Convertir en secondes
 
     document.getElementById('timer').innerText = `Temps restant : ${timeLeft}s`;
 
@@ -454,9 +551,12 @@ async function handleTimeout() {
 
     const card = flashcards[currentCardIndex];
 
+    // Déterminer le type de question (pour mega mode, utiliser card.type)
+    const questionType = (exerciseMode === 'mega' && card.type) ? card.type : exerciseMode;
+
     // Construire l'affichage de la réponse correcte
     let correctAnswerDisplay;
-    if (exerciseMode === 'fact') {
+    if (questionType === 'fact') {
         // Afficher toutes les paires de facteurs valides
         correctAnswerDisplay = card.validFactors
             .map(pair => `${pair[0]} x ${pair[1]}`)
@@ -474,7 +574,7 @@ async function handleTimeout() {
     document.getElementById('end').disabled = true;
 
     // Enregistrer le temps de réponse comme étant la limite de temps
-    responseTimes.push(getTimeLimit() / 1000);
+    responseTimes.push(getTimeLimit(card) / 1000);
 
     // Enregistrer l'erreur dans la base de données
     await recordUserError(card.question);
@@ -507,9 +607,12 @@ async function submitAnswer() {
     const responseTime = (Date.now() - questionStartTime) / 1000; // En secondes
     responseTimes.push(responseTime);
 
-    // Vérifier la réponse selon le mode
+    // Déterminer le type de question (pour mega mode, utiliser card.type)
+    const questionType = (exerciseMode === 'mega' && card.type) ? card.type : exerciseMode;
+
+    // Vérifier la réponse selon le type de question
     let isCorrect = false;
-    if (exerciseMode === 'fact') {
+    if (questionType === 'fact') {
         isCorrect = validateFactorAnswer(userAnswer, card.validFactors);
     } else {
         isCorrect = userAnswer.toLowerCase() === card.answer.toLowerCase();
@@ -526,7 +629,7 @@ async function submitAnswer() {
     } else {
         // Construire l'affichage de la réponse correcte
         let correctAnswerDisplay;
-        if (exerciseMode === 'fact') {
+        if (questionType === 'fact') {
             // Afficher toutes les paires de facteurs valides
             correctAnswerDisplay = card.validFactors
                 .map(pair => `${pair[0]} x ${pair[1]}`)
@@ -582,12 +685,123 @@ function showResults() {
         ? selectedTablesChosen.slice().sort((a,b)=>a-b).join(', ')
         : 'aucune';
 
+    // Vérifier si c'est un score parfait Megamix (100/100) et pas encore en défi Diamant
+    const isPerfectMegamix = exerciseMode === 'mega' && score === 100 && currentCardIndex === 100 && !isDiamondChallenge;
+
+    if (isPerfectMegamix) {
+        // Proposer le défi Diamant
+        document.getElementById('flashcard').innerHTML = `
+            <p>Bravo ! Score parfait : ${score}/${currentCardIndex} !</p>
+            <p>Temps de réponse moyen : ${meanResponseTimeText} secondes</p>
+            <div style="margin-top: 20px; padding: 20px; background: linear-gradient(135deg, #a8edea, #fed6e3, #667eea); border-radius: 15px;">
+                <p style="font-size: 1.2em; font-weight: bold; color: #333;">Tenter le badge Diamant Megamix ?</p>
+                <p style="color: #555;">100 questions de plus pour un total de 200/200 !</p>
+                <button id="diamond-challenge-yes" style="margin: 10px; padding: 15px 30px; font-size: 1.1em; background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; border-radius: 10px; cursor: pointer;">Oui, je relève le défi !</button>
+                <button id="diamond-challenge-no" style="margin: 10px; padding: 15px 30px; font-size: 1.1em; background: #ccc; color: #333; border: none; border-radius: 10px; cursor: pointer;">Non merci</button>
+            </div>
+        `;
+
+        // Ajouter les écouteurs pour les boutons du défi
+        document.getElementById('diamond-challenge-yes').addEventListener('click', startDiamondChallenge);
+        document.getElementById('diamond-challenge-no').addEventListener('click', finishWithoutDiamond);
+        return;
+    }
+
+    // Résultats normaux
+    let totalScore = score;
+    let totalQuestions = currentCardIndex;
+
+    // Si on termine le défi Diamant
+    if (isDiamondChallenge) {
+        totalScore = diamondChallengeScore + score;
+        totalQuestions = 100 + currentCardIndex; // 100 premières + les nouvelles
+    }
+
+    document.getElementById('flashcard').innerHTML = `
+        <p>Vous avez obtenu ${totalScore} bonnes réponses sur ${totalQuestions}. Tables sélectionnées : ${tablesText}.</p>
+        <p>Temps de réponse moyen : ${meanResponseTimeText} secondes</p>
+    `;
+
+    // Envoi du résultat vers la base de données (et Google Sheets si configuré)
+    if (!resultSent) {
+        resultSent = true;
+        const playerName = getCookie('playerName') || '';
+        try {
+            sendResultToSheet(playerName, totalScore, totalQuestions, selectedTablesChosen, meanResponseTimeSec);
+        } catch (e) {
+            console.warn('Envoi du résultat non effectué:', e);
+        }
+    }
+
+    // Vérifier si c'est un score parfait ou un nouveau record
+    const isPerfect = totalScore === totalQuestions && totalQuestions > 0;
+    const currentRatio = totalQuestions > 0 ? totalScore / totalQuestions : 0;
+    const previousRatio = userBestScore.total > 0 ? userBestScore.score / userBestScore.total : 0;
+    const isNewRecord = currentRatio > previousRatio && totalQuestions > 0;
+
+    console.log('Celebration check:', { totalScore, totalQuestions, isPerfect, currentRatio, previousRatio, isNewRecord, userBestScore });
+
+    // Déterminer le nombre de questions attendu
+    let expectedQuestions = MAX_OPERATIONS;
+    if (exerciseMode === 'mega') {
+        expectedQuestions = isDiamondChallenge ? MAX_OPERATIONS_DIAMOND : MAX_OPERATIONS_MEGA;
+    }
+
+    // Afficher la célébration si score parfait ou nouveau record
+    if ((isPerfect || isNewRecord) && totalQuestions === expectedQuestions) {
+        console.log('Showing celebration!');
+        // Célébration spéciale pour le Diamant Megamix
+        if (isDiamondChallenge && totalScore === 200 && totalQuestions === 200) {
+            showCelebration(true, true, true); // isPerfect, isNewRecord, isDiamondMegamix
+        } else {
+            showCelebration(isPerfect, isNewRecord);
+        }
+    }
+
+    // Réinitialiser le défi Diamant
+    isDiamondChallenge = false;
+    diamondChallengeScore = 0;
+}
+
+// Démarrer le défi Diamant (100 questions supplémentaires)
+async function startDiamondChallenge() {
+    isDiamondChallenge = true;
+    diamondChallengeScore = score; // Sauvegarder le score des 100 premières questions
+
+    // Générer 100 nouvelles questions
+    const allFlashcards = generateMegamixFlashcards();
+    flashcards = selectWeightedFlashcards(allFlashcards, userErrors, MAX_OPERATIONS_MEGA);
+    shuffleFlashcards();
+
+    // Réinitialiser pour la deuxième partie
+    currentCardIndex = 0;
+    score = 0;
+    resultSent = false;
+
+    // Réactiver les contrôles
+    document.getElementById('submit').addEventListener('click', submitAnswer);
+    document.getElementById('answer').addEventListener('keyup', answerKeyUpHandler);
+    document.getElementById('end').addEventListener('click', endQuiz);
+
+    displayFlashcard();
+}
+
+// Terminer sans tenter le défi Diamant
+function finishWithoutDiamond() {
+    const totalResponseTime = responseTimes.reduce((acc, val) => acc + val, 0);
+    const meanResponseTimeSec = responseTimes.length > 0 ? (totalResponseTime / responseTimes.length) : 0;
+    const meanResponseTimeText = meanResponseTimeSec.toFixed(2);
+
+    const tablesText = selectedTablesChosen && selectedTablesChosen.length > 0
+        ? selectedTablesChosen.slice().sort((a,b)=>a-b).join(', ')
+        : 'aucune';
+
     document.getElementById('flashcard').innerHTML = `
         <p>Vous avez obtenu ${score} bonnes réponses sur ${currentCardIndex}. Tables sélectionnées : ${tablesText}.</p>
         <p>Temps de réponse moyen : ${meanResponseTimeText} secondes</p>
     `;
 
-    // Envoi du résultat vers la base de données (et Google Sheets si configuré)
+    // Envoi du résultat
     if (!resultSent) {
         resultSent = true;
         const playerName = getCookie('playerName') || '';
@@ -598,19 +812,8 @@ function showResults() {
         }
     }
 
-    // Vérifier si c'est un score parfait ou un nouveau record
-    const isPerfect = score === currentCardIndex && currentCardIndex > 0;
-    const currentRatio = currentCardIndex > 0 ? score / currentCardIndex : 0;
-    const previousRatio = userBestScore.total > 0 ? userBestScore.score / userBestScore.total : 0;
-    const isNewRecord = currentRatio > previousRatio && currentCardIndex > 0;
-
-    console.log('Celebration check:', { score, currentCardIndex, isPerfect, currentRatio, previousRatio, isNewRecord, userBestScore });
-
-    // Afficher la célébration si score parfait ou nouveau record, uniquement si les 40 questions ont été complétées
-    if ((isPerfect || isNewRecord) && currentCardIndex === 40) {
-        console.log('Showing celebration!');
-        showCelebration(isPerfect, isNewRecord);
-    }
+    // Afficher la célébration pour le score parfait
+    showCelebration(true, true);
 }
 
 // Envoi du résultat au backend (qui poste ensuite vers Google Sheets)
@@ -648,18 +851,34 @@ const answerKeyUpHandler = function(event) {
 // Met à jour le titre et le nombre de tables selon le mode
 function updateModeUI() {
     const title = document.getElementById('selection-title');
+    const checkboxesDiv = document.getElementById('checkboxes');
+    const unselectBtn = document.getElementById('unselect-all');
+
     if (exerciseMode === 'add') {
         MAX_TABLE = 12;
         if (title) title.textContent = 'Sélectionnez les tables d\'additions (1 à 12) :';
+        if (checkboxesDiv) checkboxesDiv.style.display = '';
+        if (unselectBtn) unselectBtn.style.display = '';
     } else if (exerciseMode === 'sub') {
         MAX_TABLE = 12;
         if (title) title.textContent = 'Sélectionnez les tables de soustractions (1 à 12) :';
+        if (checkboxesDiv) checkboxesDiv.style.display = '';
+        if (unselectBtn) unselectBtn.style.display = '';
     } else if (exerciseMode === 'fact') {
         MAX_TABLE = 12;
         if (title) title.textContent = 'Exo Mama - Sélectionnez les tables :';
+        if (checkboxesDiv) checkboxesDiv.style.display = '';
+        if (unselectBtn) unselectBtn.style.display = '';
+    } else if (exerciseMode === 'mega') {
+        MAX_TABLE = 12;
+        if (title) title.textContent = 'Megamix - 100 questions mixtes (toutes les tables) :';
+        if (checkboxesDiv) checkboxesDiv.style.display = 'none';
+        if (unselectBtn) unselectBtn.style.display = 'none';
     } else {
         MAX_TABLE = 12;
         if (title) title.textContent = 'Sélectionnez les tables de multiplications :';
+        if (checkboxesDiv) checkboxesDiv.style.display = '';
+        if (unselectBtn) unselectBtn.style.display = '';
     }
     generateCheckboxes();
 }
@@ -709,6 +928,10 @@ window.onload = function() {
     if (modeFact) modeFact.addEventListener('change', function() {
         if (this.checked) { exerciseMode = 'fact'; updateModeUI(); }
     });
+    const modeMega = document.getElementById('mode-mega');
+    if (modeMega) modeMega.addEventListener('change', function() {
+        if (this.checked) { exerciseMode = 'mega'; updateModeUI(); }
+    });
 
     const nameForm = document.getElementById('name-form');
     if (nameForm) {
@@ -752,20 +975,28 @@ document.getElementById('table-form').addEventListener('submit', function(event)
         exerciseMode = selectedModeRadio.value;
     }
 
-    // Récupérer les tables sélectionnées
-    const selectedTables = [];
-    const checkboxes = document.querySelectorAll('input[name="tables"]:checked');
-    checkboxes.forEach((checkbox) => {
-        selectedTables.push(parseInt(checkbox.value));
-    });
+    let selectedTables = [];
+
+    // Pour Megamix, utiliser toutes les tables automatiquement
+    if (exerciseMode === 'mega') {
+        for (let i = 1; i <= 12; i++) {
+            selectedTables.push(i);
+        }
+    } else {
+        // Récupérer les tables sélectionnées
+        const checkboxes = document.querySelectorAll('input[name="tables"]:checked');
+        checkboxes.forEach((checkbox) => {
+            selectedTables.push(parseInt(checkbox.value));
+        });
+
+        if (selectedTables.length === 0) {
+            alert("Veuillez sélectionner au moins une table.");
+            return;
+        }
+    }
 
     // Conserver pour le message de score final
     selectedTablesChosen = selectedTables.slice();
-
-    if (selectedTables.length === 0) {
-        alert("Veuillez sélectionner au moins une table.");
-        return;
-    }
 
     // Masquer la section de sélection et afficher la section des flashcards
     document.getElementById('table-selection').style.display = 'none';
@@ -782,11 +1013,20 @@ async function loadFlashcards(selectedTables) {
     userBestScore = await fetchUserBestScore();
 
     // Générer toutes les flashcards possibles
-    const allFlashcards = generateFlashcards(selectedTables);
+    let allFlashcards;
+    let maxOps;
+
+    if (exerciseMode === 'mega') {
+        allFlashcards = generateMegamixFlashcards();
+        maxOps = MAX_OPERATIONS_MEGA;
+    } else {
+        allFlashcards = generateFlashcards(selectedTables);
+        maxOps = MAX_OPERATIONS;
+    }
 
     // Appliquer la sélection pondérée (erreurs ont plus de chances d'apparaître)
-    // et limiter à MAX_OPERATIONS
-    flashcards = selectWeightedFlashcards(allFlashcards, userErrors, MAX_OPERATIONS);
+    // et limiter au nombre d'opérations approprié
+    flashcards = selectWeightedFlashcards(allFlashcards, userErrors, maxOps);
 
     // Mélanger les cartes sélectionnées
     shuffleFlashcards();
