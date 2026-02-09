@@ -461,6 +461,14 @@
     <div class="scores-container">
         <a href="index.html" class="back-link">&larr; Retour au jeu</a>
 
+        <!-- Group info section -->
+        <div id="group-header" style="display: none; margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 15px; color: white;">
+            <div style="display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;">
+                <span style="font-size: 1.2em;">Groupe : <strong id="scores-group-name"></strong></span>
+                <button id="scores-copy-invite" style="padding: 8px 16px; background: white; color: #667eea; border: none; border-radius: 20px; cursor: pointer; font-weight: bold;">Copier le lien d'invitation</button>
+            </div>
+        </div>
+
         <h2>Badges</h2>
 
         <div id="badges-content">
@@ -618,12 +626,78 @@ let allAttempts = [];
 let allBadges = [];
 let allSpecialistBadges = [];
 
+// Cookie helpers
+function getCookie(name) {
+    const cname = name + "=";
+    const decodedCookie = decodeURIComponent(document.cookie || "");
+    const ca = decodedCookie.split(';');
+    for (let i = 0; i < ca.length; i++) {
+        let c = ca[i];
+        while (c.charAt(0) === ' ') {
+            c = c.substring(1);
+        }
+        if (c.indexOf(cname) === 0) {
+            return c.substring(cname.length, c.length);
+        }
+    }
+    return "";
+}
+
+// Get group info from cookies
+let currentGroupId = null;
+let currentGroupSecretKey = null;
+let currentGroupName = null;
+
+function initGroupInfo() {
+    const groupId = getCookie('groupId');
+    const groupSecretKey = getCookie('groupSecretKey');
+    const groupName = getCookie('groupName');
+
+    if (groupId) {
+        currentGroupId = parseInt(groupId, 10);
+        currentGroupSecretKey = groupSecretKey || null;
+        currentGroupName = groupName || null;
+
+        // Show group header
+        const header = document.getElementById('group-header');
+        const nameEl = document.getElementById('scores-group-name');
+        if (header && currentGroupName) {
+            nameEl.textContent = currentGroupName;
+            header.style.display = 'block';
+        }
+    }
+}
+
+// Copy invite link
+function copyInviteLink() {
+    if (!currentGroupSecretKey) return;
+    const url = window.location.origin + '/static/?g=' + currentGroupSecretKey;
+    navigator.clipboard.writeText(url).then(() => {
+        const btn = document.getElementById('scores-copy-invite');
+        const originalText = btn.textContent;
+        btn.textContent = 'Copie !';
+        setTimeout(() => { btn.textContent = originalText; }, 2000);
+    }).catch(err => {
+        console.warn('Failed to copy:', err);
+        alert('Lien: ' + url);
+    });
+}
+
+// Build query string with group_id if set
+function buildGroupQuery() {
+    if (currentGroupId) {
+        return '?group_id=' + currentGroupId;
+    }
+    return '';
+}
+
 async function loadBadges() {
     try {
         // Load both regular badges and specialist badges
+        const query = buildGroupQuery();
         const [badgesResponse, specialistResponse] = await Promise.all([
-            fetch('/api/badges'),
-            fetch('/api/specialist-badges')
+            fetch('/api/badges' + query),
+            fetch('/api/specialist-badges' + query)
         ]);
 
         if (badgesResponse.ok) {
@@ -643,7 +717,7 @@ async function loadBadges() {
 
 async function loadScores() {
     try {
-        const response = await fetch('/api/scores');
+        const response = await fetch('/api/scores' + buildGroupQuery());
         if (response.ok) {
             allScores = await response.json();
             displayScores(allScores);
@@ -660,7 +734,7 @@ async function loadScores() {
 
 async function loadAttempts() {
     try {
-        const response = await fetch('/api/attempts');
+        const response = await fetch('/api/attempts' + buildGroupQuery());
         if (response.ok) {
             allAttempts = await response.json();
             displayAttempts(allAttempts);
@@ -1212,6 +1286,9 @@ function populateLegendBadges() {
     });
 }
 
+// Initialize
+initGroupInfo();
+document.getElementById('scores-copy-invite').addEventListener('click', copyInviteLink);
 loadBadges();
 loadScores();
 loadAttempts();

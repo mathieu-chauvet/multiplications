@@ -131,6 +131,148 @@ h2 {
     box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
 }
 
+/* Group section */
+#group-section {
+    padding: 20px;
+}
+
+#group-section h2 {
+    margin-bottom: 15px;
+}
+
+#group-section h3 {
+    color: #667eea;
+    margin-bottom: 15px;
+}
+
+#group-section p {
+    color: #555;
+    margin-bottom: 15px;
+}
+
+.group-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    align-items: center;
+    margin-top: 20px;
+}
+
+.group-btn {
+    padding: 15px 40px;
+    font-size: 1.1em;
+    font-weight: bold;
+    border: 3px solid #667eea;
+    border-radius: 25px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: white;
+    color: #667eea;
+    min-width: 250px;
+}
+
+.group-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+}
+
+.group-btn.primary {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border-color: transparent;
+}
+
+.group-btn.primary:hover {
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+}
+
+#create-group-form, #join-group-form {
+    margin-top: 20px;
+}
+
+#create-group-form form, #join-group-form form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    align-items: center;
+}
+
+#new-group-name, #group-secret-key {
+    width: 100%;
+    max-width: 300px;
+    padding: 15px 20px;
+    font-size: 1.1em;
+    border: 3px solid #667eea;
+    border-radius: 15px;
+    outline: none;
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+#new-group-name:focus, #group-secret-key:focus {
+    border-color: #764ba2;
+    box-shadow: 0 0 15px rgba(118, 75, 162, 0.3);
+}
+
+#create-group-form button, #join-group-form button {
+    padding: 12px 30px;
+    font-size: 1em;
+    font-weight: bold;
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#create-group-form button[type="submit"], #join-group-form button[type="submit"] {
+    background: linear-gradient(135deg, #11998e, #38ef7d);
+    color: white;
+}
+
+#create-group-form button[type="submit"]:hover, #join-group-form button[type="submit"]:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 20px rgba(56, 239, 125, 0.4);
+}
+
+#cancel-create-group, #cancel-join-group {
+    background: #f0f0f0;
+    color: #666;
+}
+
+#cancel-create-group:hover, #cancel-join-group:hover {
+    background: #e0e0e0;
+}
+
+/* Group info in user bar */
+#group-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-right: 10px;
+    border-right: 1px solid #ddd;
+    margin-right: 10px;
+}
+
+#group-name-display {
+    font-weight: bold;
+    color: #764ba2;
+    font-size: 0.9em;
+}
+
+#copy-invite-link {
+    padding: 5px 12px;
+    font-size: 0.8em;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+#copy-invite-link:hover {
+    transform: scale(1.05);
+}
+
 /* Table selection */
 #table-selection {
     margin: 20px 0;

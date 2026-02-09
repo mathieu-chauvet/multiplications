@@ -59,6 +59,111 @@ function deleteCookie(name) {
     document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
 }
 
+// Group management
+let currentGroupId = null;
+let currentGroupSecretKey = null;
+let currentGroupName = null;
+
+// Get group info from cookies
+function getGroupFromCookies() {
+    const groupId = getCookie('groupId');
+    const groupSecretKey = getCookie('groupSecretKey');
+    const groupName = getCookie('groupName');
+    if (groupId) {
+        currentGroupId = parseInt(groupId, 10);
+        currentGroupSecretKey = groupSecretKey || null;
+        currentGroupName = groupName || null;
+        return true;
+    }
+    return false;
+}
+
+// Save group info to cookies
+function saveGroupToCookies(groupId, secretKey, name) {
+    currentGroupId = groupId;
+    currentGroupSecretKey = secretKey;
+    currentGroupName = name;
+    setCookie('groupId', groupId, 365);
+    if (secretKey) setCookie('groupSecretKey', secretKey, 365);
+    if (name) setCookie('groupName', name, 365);
+}
+
+// Parse secret key from URL or input
+function parseSecretKey(input) {
+    // Handle full URL like http://example.com/static/?g=abc123
+    if (input.includes('?g=')) {
+        const match = input.match(/[?&]g=([^&]+)/);
+        return match ? match[1] : null;
+    }
+    // Handle just the secret key
+    return input.trim();
+}
+
+// Get secret key from URL if present
+function getSecretKeyFromURL() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('g');
+}
+
+// Fetch group info by secret key
+async function fetchGroupBySecretKey(secretKey) {
+    try {
+        const response = await fetch(`/api/groups?secret_key=${encodeURIComponent(secretKey)}`);
+        if (response.ok) {
+            return await response.json();
+        }
+        return null;
+    } catch (e) {
+        console.warn('Error fetching group:', e);
+        return null;
+    }
+}
+
+// Create a new group
+async function createNewGroup(name) {
+    try {
+        const response = await fetch('/api/groups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name })
+        });
+        if (response.ok) {
+            return await response.json();
+        }
+        return null;
+    } catch (e) {
+        console.warn('Error creating group:', e);
+        return null;
+    }
+}
+
+// Copy invite link to clipboard
+function copyInviteLink() {
+    if (!currentGroupSecretKey) return;
+    const url = window.location.origin + window.location.pathname + '?g=' + currentGroupSecretKey;
+    navigator.clipboard.writeText(url).then(() => {
+        const btn = document.getElementById('copy-invite-link');
+        const originalText = btn.textContent;
+        btn.textContent = 'Copie !';
+        setTimeout(() => { btn.textContent = originalText; }, 2000);
+    }).catch(err => {
+        console.warn('Failed to copy:', err);
+        alert('Lien: ' + url);
+    });
+}
+
+// Update group display in user bar
+function updateGroupDisplay() {
+    const groupInfo = document.getElementById('group-info');
+    const groupNameDisplay = document.getElementById('group-name-display');
+    if (groupInfo && currentGroupName) {
+        groupNameDisplay.textContent = currentGroupName;
+        groupInfo.style.display = 'flex';
+    } else if (groupInfo) {
+        groupInfo.style.display = 'none';
+    }
+}
+
 // Récupère les erreurs de l'utilisateur depuis le serveur
 async function fetchUserErrors() {
     const playerName = getCookie('playerName');
@@ -168,14 +273,19 @@ async function recordUserError(question) {
     if (!playerName) return;
 
     try {
+        const payload = {
+            name: playerName,
+            exercise_type: exerciseMode,
+            question: question
+        };
+        // Include group_id if set
+        if (currentGroupId) {
+            payload.group_id = currentGroupId;
+        }
         await fetch('/api/user-error', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: playerName,
-                exercise_type: exerciseMode,
-                question: question
-            })
+            body: JSON.stringify(payload)
         });
     } catch (e) {
         console.warn('Erreur lors de l\'enregistrement de l\'erreur:', e);
@@ -819,17 +929,22 @@ function finishWithoutDiamond() {
 // Envoi du résultat au backend (qui poste ensuite vers Google Sheets)
 function sendResultToSheet(name, score, total, tables, meanTimeSeconds) {
     try {
+        const payload = {
+            name: name || '',
+            score: Number(score) || 0,
+            total: Number(total) || 0,
+            tables: Array.isArray(tables) ? tables : [],
+            exercise_type: exerciseMode || 'mul',
+            mean_time_seconds: Number.isFinite(meanTimeSeconds) ? meanTimeSeconds : 0
+        };
+        // Include group_id if set
+        if (currentGroupId) {
+            payload.group_id = currentGroupId;
+        }
         return fetch('/api/result', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: name || '',
-                score: Number(score) || 0,
-                total: Number(total) || 0,
-                tables: Array.isArray(tables) ? tables : [],
-                exercise_type: exerciseMode || 'mul',
-                mean_time_seconds: Number.isFinite(meanTimeSeconds) ? meanTimeSeconds : 0
-            })
+            body: JSON.stringify(payload)
         }).then(res => {
             if (!res.ok) throw new Error('HTTP ' + res.status);
             return res.json().catch(() => ({}));
@@ -884,27 +999,182 @@ function updateModeUI() {
 }
 
 // Générer les cases à cocher lors du chargement de la page
-window.onload = function() {
+window.onload = async function() {
     updateModeUI();
 
-    // Gestion du nom via cookie
+    // DOM elements
+    const groupSection = document.getElementById('group-section');
+    const groupChoice = document.getElementById('group-choice');
+    const groupInvitePrompt = document.getElementById('group-invite-prompt');
+    const createGroupForm = document.getElementById('create-group-form');
+    const joinGroupForm = document.getElementById('join-group-form');
     const nameSection = document.getElementById('name-section');
     const tableSelection = document.getElementById('table-selection');
     const userBar = document.getElementById('user-bar');
     const userNameDisplay = document.getElementById('user-name-display');
     const logoutBtn = document.getElementById('logout-btn');
-    const existingName = getCookie('playerName');
 
-    if (!existingName) {
-        // Afficher la demande de nom et masquer la sélection des tables
-        if (nameSection) nameSection.style.display = 'block';
-        if (tableSelection) tableSelection.style.display = 'none';
-        if (userBar) userBar.style.display = 'none';
-    } else {
+    const existingName = getCookie('playerName');
+    const hasGroup = getGroupFromCookies();
+    const urlSecretKey = getSecretKeyFromURL();
+
+    // Determine which UI to show
+    if (hasGroup && existingName) {
+        // User has both group and name - show table selection
+        if (groupSection) groupSection.style.display = 'none';
         if (nameSection) nameSection.style.display = 'none';
         if (tableSelection) tableSelection.style.display = 'block';
         if (userBar) userBar.style.display = 'flex';
         if (userNameDisplay) userNameDisplay.textContent = existingName;
+        updateGroupDisplay();
+    } else if (hasGroup && !existingName) {
+        // Has group but no name - show name entry
+        if (groupSection) groupSection.style.display = 'none';
+        if (nameSection) nameSection.style.display = 'block';
+        if (tableSelection) tableSelection.style.display = 'none';
+        if (userBar) userBar.style.display = 'none';
+    } else if (urlSecretKey) {
+        // No group but URL has invite link - show invite prompt
+        const group = await fetchGroupBySecretKey(urlSecretKey);
+        if (group) {
+            const inviteGroupName = document.getElementById('invite-group-name');
+            if (inviteGroupName) inviteGroupName.textContent = group.name;
+            if (groupSection) groupSection.style.display = 'block';
+            if (groupChoice) groupChoice.style.display = 'none';
+            if (groupInvitePrompt) groupInvitePrompt.style.display = 'block';
+            if (nameSection) nameSection.style.display = 'none';
+            if (tableSelection) tableSelection.style.display = 'none';
+            if (userBar) userBar.style.display = 'none';
+
+            // Store the fetched group for later use
+            window.pendingInviteGroup = group;
+        } else {
+            // Invalid invite link - show group choice
+            if (groupSection) groupSection.style.display = 'block';
+            if (groupChoice) groupChoice.style.display = 'block';
+            if (groupInvitePrompt) groupInvitePrompt.style.display = 'none';
+            if (nameSection) nameSection.style.display = 'none';
+            if (tableSelection) tableSelection.style.display = 'none';
+            if (userBar) userBar.style.display = 'none';
+        }
+    } else {
+        // No group and no invite - show group choice
+        if (groupSection) groupSection.style.display = 'block';
+        if (groupChoice) groupChoice.style.display = 'block';
+        if (groupInvitePrompt) groupInvitePrompt.style.display = 'none';
+        if (nameSection) nameSection.style.display = 'none';
+        if (tableSelection) tableSelection.style.display = 'none';
+        if (userBar) userBar.style.display = 'none';
+    }
+
+    // Group UI event handlers
+    const acceptInviteBtn = document.getElementById('accept-invite-btn');
+    const declineInviteBtn = document.getElementById('decline-invite-btn');
+    const createGroupBtn = document.getElementById('create-group-btn');
+    const joinGroupBtn = document.getElementById('join-group-btn');
+    const cancelCreateGroup = document.getElementById('cancel-create-group');
+    const cancelJoinGroup = document.getElementById('cancel-join-group');
+    const newGroupFormEl = document.getElementById('new-group-form');
+    const joinExistingForm = document.getElementById('join-existing-form');
+    const copyInviteLinkBtn = document.getElementById('copy-invite-link');
+
+    if (acceptInviteBtn) {
+        acceptInviteBtn.addEventListener('click', function() {
+            if (window.pendingInviteGroup) {
+                const g = window.pendingInviteGroup;
+                saveGroupToCookies(g.id, g.secret_key, g.name);
+                if (groupSection) groupSection.style.display = 'none';
+                if (nameSection) nameSection.style.display = 'block';
+                // Clean up URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        });
+    }
+
+    if (declineInviteBtn) {
+        declineInviteBtn.addEventListener('click', function() {
+            window.pendingInviteGroup = null;
+            if (groupInvitePrompt) groupInvitePrompt.style.display = 'none';
+            if (groupChoice) groupChoice.style.display = 'block';
+            // Clean up URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+        });
+    }
+
+    if (createGroupBtn) {
+        createGroupBtn.addEventListener('click', function() {
+            if (groupChoice) groupChoice.style.display = 'none';
+            if (createGroupForm) createGroupForm.style.display = 'block';
+        });
+    }
+
+    if (joinGroupBtn) {
+        joinGroupBtn.addEventListener('click', function() {
+            if (groupChoice) groupChoice.style.display = 'none';
+            if (joinGroupForm) joinGroupForm.style.display = 'block';
+        });
+    }
+
+    if (cancelCreateGroup) {
+        cancelCreateGroup.addEventListener('click', function() {
+            if (createGroupForm) createGroupForm.style.display = 'none';
+            if (groupChoice) groupChoice.style.display = 'block';
+        });
+    }
+
+    if (cancelJoinGroup) {
+        cancelJoinGroup.addEventListener('click', function() {
+            if (joinGroupForm) joinGroupForm.style.display = 'none';
+            if (groupChoice) groupChoice.style.display = 'block';
+            document.getElementById('join-error').style.display = 'none';
+        });
+    }
+
+    if (newGroupFormEl) {
+        newGroupFormEl.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const nameInput = document.getElementById('new-group-name');
+            const name = nameInput.value.trim();
+            if (!name) return;
+
+            const group = await createNewGroup(name);
+            if (group) {
+                saveGroupToCookies(group.id, group.secret_key, group.name);
+                if (groupSection) groupSection.style.display = 'none';
+                if (nameSection) nameSection.style.display = 'block';
+            } else {
+                alert('Erreur lors de la creation du groupe');
+            }
+        });
+    }
+
+    if (joinExistingForm) {
+        joinExistingForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const input = document.getElementById('group-secret-key');
+            const errorEl = document.getElementById('join-error');
+            const secretKey = parseSecretKey(input.value);
+            if (!secretKey) {
+                errorEl.textContent = 'Veuillez entrer un lien ou une cle valide';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            const group = await fetchGroupBySecretKey(secretKey);
+            if (group) {
+                saveGroupToCookies(group.id, group.secret_key, group.name);
+                if (groupSection) groupSection.style.display = 'none';
+                if (nameSection) nameSection.style.display = 'block';
+                errorEl.style.display = 'none';
+            } else {
+                errorEl.textContent = 'Groupe non trouve. Verifiez le lien.';
+                errorEl.style.display = 'block';
+            }
+        });
+    }
+
+    if (copyInviteLinkBtn) {
+        copyInviteLinkBtn.addEventListener('click', copyInviteLink);
     }
 
     if (logoutBtn) {
@@ -949,6 +1219,7 @@ window.onload = function() {
             if (tableSelection) tableSelection.style.display = 'block';
             if (userBar) userBar.style.display = 'flex';
             if (userNameDisplay) userNameDisplay.textContent = value;
+            updateGroupDisplay();
         });
     }
 
@@ -1054,22 +1325,32 @@ function disconnectUser() {
     currentCardIndex = 0;
     score = 0;
     responseTimes = [];
+    currentGroupId = null;
+    currentGroupSecretKey = null;
+    currentGroupName = null;
 
-    // Hide quiz UI and table selection; show name prompt
+    // Hide quiz UI and table selection; show group selection
     const flashcardDiv = document.getElementById('flashcard');
     const tableSelection = document.getElementById('table-selection');
     const nameSection = document.getElementById('name-section');
+    const groupSection = document.getElementById('group-section');
+    const groupChoice = document.getElementById('group-choice');
     const userBar = document.getElementById('user-bar');
     const nameInput = document.getElementById('player-name');
 
     if (flashcardDiv) flashcardDiv.style.display = 'none';
     if (tableSelection) tableSelection.style.display = 'none';
-    if (nameSection) nameSection.style.display = 'block';
+    if (nameSection) nameSection.style.display = 'none';
+    if (groupSection) groupSection.style.display = 'block';
+    if (groupChoice) groupChoice.style.display = 'block';
     if (userBar) userBar.style.display = 'none';
     if (nameInput) nameInput.value = '';
 
-    // Clear the cookie
+    // Clear all cookies
     deleteCookie('playerName');
+    deleteCookie('groupId');
+    deleteCookie('groupSecretKey');
+    deleteCookie('groupName');
 }
 
 // Enregistrer le service worker
@@ -1115,6 +1396,10 @@ if ('serviceWorker' in navigator) {
                 exercise_type: exerciseMode || 'mul',
                 mean_time_seconds: Number.isFinite(meanTime) ? meanTime : 0
             };
+            // Include group_id if set
+            if (currentGroupId) {
+                payload.group_id = currentGroupId;
+            }
             const url = '/api/result';
             const json = JSON.stringify(payload);
 

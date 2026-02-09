@@ -1,7 +1,7 @@
 # Supermaths Configuration File
 
 [httpconfig]
-port = "8080"
+port = "12000"
 metricsport = "9090"
 
 [dbconfig]

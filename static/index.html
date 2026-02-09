@@ -10,11 +10,59 @@
 <body>
 <div id="app">
     <div id="user-bar" style="display: none;">
+        <div id="group-info">
+            <span id="group-name-display"></span>
+            <button type="button" id="copy-invite-link" title="Copier le lien d'invitation">Inviter</button>
+        </div>
         <span id="user-name-display"></span>
-        <button type="button" id="logout-btn" title="Se déconnecter">Se déconnecter</button>
+        <button type="button" id="logout-btn" title="Se deconnecter">Se deconnecter</button>
     </div>
     <h1>Super Maths!</h1>
     <img src="icons/logo-192x192.png" alt="Logo de l'application" id="app-logo">
+
+    <!-- Section pour choisir/rejoindre un groupe (affichée pour nouveaux utilisateurs) -->
+    <div id="group-section" style="display: none;">
+        <h2>Bienvenue !</h2>
+
+        <!-- Affichage quand on arrive avec un lien d'invitation -->
+        <div id="group-invite-prompt" style="display: none;">
+            <p>Vous avez ete invite a rejoindre le groupe :</p>
+            <p id="invite-group-name" style="font-weight: bold; font-size: 1.3em; color: #667eea;"></p>
+            <button type="button" id="accept-invite-btn" class="group-btn primary">Rejoindre ce groupe</button>
+            <button type="button" id="decline-invite-btn" class="group-btn">Creer mon propre groupe</button>
+        </div>
+
+        <!-- Affichage pour choisir de creer ou rejoindre -->
+        <div id="group-choice" style="display: none;">
+            <p>Pour commencer, creez un groupe ou rejoignez un groupe existant :</p>
+            <div class="group-buttons">
+                <button type="button" id="create-group-btn" class="group-btn primary">Creer un groupe</button>
+                <button type="button" id="join-group-btn" class="group-btn">Rejoindre un groupe</button>
+            </div>
+        </div>
+
+        <!-- Formulaire pour creer un groupe -->
+        <div id="create-group-form" style="display: none;">
+            <h3>Creer un nouveau groupe</h3>
+            <form id="new-group-form">
+                <input type="text" id="new-group-name" placeholder="Nom du groupe" required>
+                <button type="submit">Creer</button>
+                <button type="button" id="cancel-create-group">Annuler</button>
+            </form>
+        </div>
+
+        <!-- Formulaire pour rejoindre un groupe -->
+        <div id="join-group-form" style="display: none;">
+            <h3>Rejoindre un groupe</h3>
+            <p style="font-size: 0.9em; color: #666;">Collez le lien d'invitation ou la cle secrete du groupe :</p>
+            <form id="join-existing-form">
+                <input type="text" id="group-secret-key" placeholder="Lien ou cle secrete" required>
+                <button type="submit">Rejoindre</button>
+                <button type="button" id="cancel-join-group">Annuler</button>
+            </form>
+            <p id="join-error" style="color: red; display: none;"></p>
+        </div>
+    </div>
 
     <!-- Section pour saisir le nom (affichée si le cookie est absent) -->
     <div id="name-section" style="display: none;">

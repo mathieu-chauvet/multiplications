@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -17,8 +19,72 @@ import (
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	_ "modernc.org/sqlite"
 )
+
+// Prometheus metrics
+var (
+	httpRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Total number of HTTP requests",
+		},
+		[]string{"method", "path", "status"},
+	)
+	httpRequestDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "HTTP request duration in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"method", "path"},
+	)
+	quizResultsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "quiz_results_total",
+			Help: "Total number of quiz results submitted",
+		},
+		[]string{"exercise_type"},
+	)
+	userErrorsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "user_errors_total",
+			Help: "Total number of user errors recorded",
+		},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(httpRequestsTotal)
+	prometheus.MustRegister(httpRequestDuration)
+	prometheus.MustRegister(quizResultsTotal)
+	prometheus.MustRegister(userErrorsTotal)
+}
+
+// instrumentHandler wraps an http.HandlerFunc with Prometheus metrics
+func instrumentHandler(path string, handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		wrapped := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
+		handler(wrapped, r)
+		duration := time.Since(start).Seconds()
+		httpRequestsTotal.WithLabelValues(r.Method, path, strconv.Itoa(wrapped.statusCode)).Inc()
+		httpRequestDuration.WithLabelValues(r.Method, path).Observe(duration)
+	}
+}
+
+// statusRecorder wraps http.ResponseWriter to capture the status code
+type statusRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.statusCode = code
+	r.ResponseWriter.WriteHeader(code)
+}
 
 // Config structures for TOML configuration
 type Config struct {
@@ -137,6 +203,119 @@ func initDB() error {
 		return fmt.Errorf("failed to create specialist_badges index: %w", err)
 	}
 
+	// Create groups table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS groups (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			secret_key TEXT NOT NULL UNIQUE,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create groups table: %w", err)
+	}
+
+	// Create index for groups secret_key lookup
+	_, err = db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_groups_secret_key
+		ON groups(secret_key)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create groups index: %w", err)
+	}
+
+	// Add group_id column to user_results if it doesn't exist
+	_, err = db.Exec(`ALTER TABLE user_results ADD COLUMN group_id INTEGER REFERENCES groups(id)`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		// Ignore "duplicate column" error, it means column already exists
+		slog.Debug("user_results group_id column", "info", err.Error())
+	}
+
+	// Add group_id column to user_errors if it doesn't exist
+	_, err = db.Exec(`ALTER TABLE user_errors ADD COLUMN group_id INTEGER REFERENCES groups(id)`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		slog.Debug("user_errors group_id column", "info", err.Error())
+	}
+
+	// Add group_id column to specialist_badges if it doesn't exist
+	_, err = db.Exec(`ALTER TABLE specialist_badges ADD COLUMN group_id INTEGER REFERENCES groups(id)`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		slog.Debug("specialist_badges group_id column", "info", err.Error())
+	}
+
+	// Migration: Create default group for existing data and update records
+	if err := migrateExistingDataToDefaultGroup(); err != nil {
+		return fmt.Errorf("failed to migrate existing data to default group: %w", err)
+	}
+
+	return nil
+}
+
+// generateSecretKey generates a random 16-character hex string for group secret keys
+func generateSecretKey() (string, error) {
+	bytes := make([]byte, 8)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
+// migrateExistingDataToDefaultGroup creates a default group and migrates existing records
+func migrateExistingDataToDefaultGroup() error {
+	// Check if there are any records without a group_id
+	var countWithoutGroup int
+	err := db.QueryRow(`SELECT COUNT(*) FROM user_results WHERE group_id IS NULL`).Scan(&countWithoutGroup)
+	if err != nil {
+		return err
+	}
+
+	if countWithoutGroup == 0 {
+		// No migration needed
+		return nil
+	}
+
+	// Check if default group already exists
+	var defaultGroupID int64
+	err = db.QueryRow(`SELECT id FROM groups WHERE name = 'Groupe Original'`).Scan(&defaultGroupID)
+	if err == sql.ErrNoRows {
+		// Create the default group
+		secretKey, err := generateSecretKey()
+		if err != nil {
+			return err
+		}
+
+		result, err := db.Exec(`INSERT INTO groups (name, secret_key) VALUES ('Groupe Original', ?)`, secretKey)
+		if err != nil {
+			return err
+		}
+
+		defaultGroupID, err = result.LastInsertId()
+		if err != nil {
+			return err
+		}
+		slog.Info("Created default group for existing data", "group_id", defaultGroupID, "secret_key", secretKey)
+	} else if err != nil {
+		return err
+	}
+
+	// Update all records without a group_id
+	_, err = db.Exec(`UPDATE user_results SET group_id = ? WHERE group_id IS NULL`, defaultGroupID)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`UPDATE user_errors SET group_id = ? WHERE group_id IS NULL`, defaultGroupID)
+	if err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`UPDATE specialist_badges SET group_id = ? WHERE group_id IS NULL`, defaultGroupID)
+	if err != nil {
+		return err
+	}
+
+	slog.Info("Migrated existing data to default group", "group_id", defaultGroupID, "records_count", countWithoutGroup)
 	return nil
 }
 
@@ -250,17 +429,43 @@ func getAllScores(w http.ResponseWriter, r *http.Request) {
 	// For each user/exercise, find the best result based on:
 	// 1. Highest score (primary)
 	// 2. Lowest mean time (secondary, for tiebreaker)
-	rows, err := db.Query(`
-		SELECT
-			user_name,
-			exercise_type,
-			score,
-			total,
-			COALESCE(mean_time_seconds, 999) as mean_time
-		FROM user_results
-		WHERE total = 40 OR (exercise_type = 'mega' AND total IN (100, 200))
-		ORDER BY user_name, exercise_type, score DESC, mean_time_seconds ASC
-	`)
+
+	// Filter by group_id if provided
+	groupIDParam := r.URL.Query().Get("group_id")
+	var rows *sql.Rows
+	var err error
+
+	if groupIDParam != "" {
+		groupID, parseErr := strconv.ParseInt(groupIDParam, 10, 64)
+		if parseErr != nil {
+			http.Error(w, "invalid group_id", http.StatusBadRequest)
+			return
+		}
+		rows, err = db.Query(`
+			SELECT
+				user_name,
+				exercise_type,
+				score,
+				total,
+				COALESCE(mean_time_seconds, 999) as mean_time
+			FROM user_results
+			WHERE (total = 40 OR (exercise_type = 'mega' AND total IN (100, 200)))
+			  AND group_id = ?
+			ORDER BY user_name, exercise_type, score DESC, mean_time_seconds ASC
+		`, groupID)
+	} else {
+		rows, err = db.Query(`
+			SELECT
+				user_name,
+				exercise_type,
+				score,
+				total,
+				COALESCE(mean_time_seconds, 999) as mean_time
+			FROM user_results
+			WHERE total = 40 OR (exercise_type = 'mega' AND total IN (100, 200))
+			ORDER BY user_name, exercise_type, score DESC, mean_time_seconds ASC
+		`)
+	}
 	if err != nil {
 		slog.Error("Failed to query scores", "error", err)
 		http.Error(w, "database error", http.StatusInternalServerError)
@@ -331,12 +536,32 @@ type Attempt struct {
 }
 
 func getAllAttempts(w http.ResponseWriter, r *http.Request) {
-	rows, err := db.Query(`
-		SELECT user_name, exercise_type, score, total, COALESCE(tables, ''), COALESCE(mean_time_seconds, 0), created_at
-		FROM user_results
-		ORDER BY created_at DESC
-		LIMIT 500
-	`)
+	// Filter by group_id if provided
+	groupIDParam := r.URL.Query().Get("group_id")
+	var rows *sql.Rows
+	var err error
+
+	if groupIDParam != "" {
+		groupID, parseErr := strconv.ParseInt(groupIDParam, 10, 64)
+		if parseErr != nil {
+			http.Error(w, "invalid group_id", http.StatusBadRequest)
+			return
+		}
+		rows, err = db.Query(`
+			SELECT user_name, exercise_type, score, total, COALESCE(tables, ''), COALESCE(mean_time_seconds, 0), created_at
+			FROM user_results
+			WHERE group_id = ?
+			ORDER BY created_at DESC
+			LIMIT 500
+		`, groupID)
+	} else {
+		rows, err = db.Query(`
+			SELECT user_name, exercise_type, score, total, COALESCE(tables, ''), COALESCE(mean_time_seconds, 0), created_at
+			FROM user_results
+			ORDER BY created_at DESC
+			LIMIT 500
+		`)
+	}
 	if err != nil {
 		slog.Error("Failed to query attempts", "error", err)
 		http.Error(w, "database error", http.StatusInternalServerError)
@@ -440,14 +665,37 @@ func getBadges(w http.ResponseWriter, r *http.Request) {
 	// - Standard exercises: 40 total questions and at least 36 score
 	// - Megamix: 100 total questions and at least 90 score
 	// - Diamond Megamix: 200 total questions and 200 score
-	rows, err := db.Query(`
-		SELECT user_name, exercise_type, score, total, COALESCE(tables, '')
-		FROM user_results
-		WHERE (total = 40 AND score >= 36)
-		   OR (exercise_type = 'mega' AND total = 100 AND score >= 90)
-		   OR (exercise_type = 'mega' AND total = 200 AND score = 200)
-		ORDER BY user_name, exercise_type, score DESC
-	`)
+
+	// Filter by group_id if provided
+	groupIDParam := r.URL.Query().Get("group_id")
+	var rows *sql.Rows
+	var err error
+
+	if groupIDParam != "" {
+		groupID, parseErr := strconv.ParseInt(groupIDParam, 10, 64)
+		if parseErr != nil {
+			http.Error(w, "invalid group_id", http.StatusBadRequest)
+			return
+		}
+		rows, err = db.Query(`
+			SELECT user_name, exercise_type, score, total, COALESCE(tables, '')
+			FROM user_results
+			WHERE ((total = 40 AND score >= 36)
+			   OR (exercise_type = 'mega' AND total = 100 AND score >= 90)
+			   OR (exercise_type = 'mega' AND total = 200 AND score = 200))
+			   AND group_id = ?
+			ORDER BY user_name, exercise_type, score DESC
+		`, groupID)
+	} else {
+		rows, err = db.Query(`
+			SELECT user_name, exercise_type, score, total, COALESCE(tables, '')
+			FROM user_results
+			WHERE (total = 40 AND score >= 36)
+			   OR (exercise_type = 'mega' AND total = 100 AND score >= 90)
+			   OR (exercise_type = 'mega' AND total = 200 AND score = 200)
+			ORDER BY user_name, exercise_type, score DESC
+		`)
+	}
 	if err != nil {
 		slog.Error("Failed to query badges", "error", err)
 		http.Error(w, "database error", http.StatusInternalServerError)
@@ -587,11 +835,30 @@ type SpecialistBadge struct {
 }
 
 func getSpecialistBadges(w http.ResponseWriter, r *http.Request) {
-	rows, err := db.Query(`
-		SELECT user_name, exercise_type, table_number, consecutive_perfect, badge_earned, COALESCE(earned_at, '')
-		FROM specialist_badges
-		ORDER BY user_name, exercise_type, table_number
-	`)
+	// Filter by group_id if provided
+	groupIDParam := r.URL.Query().Get("group_id")
+	var rows *sql.Rows
+	var err error
+
+	if groupIDParam != "" {
+		groupID, parseErr := strconv.ParseInt(groupIDParam, 10, 64)
+		if parseErr != nil {
+			http.Error(w, "invalid group_id", http.StatusBadRequest)
+			return
+		}
+		rows, err = db.Query(`
+			SELECT user_name, exercise_type, table_number, consecutive_perfect, badge_earned, COALESCE(earned_at, '')
+			FROM specialist_badges
+			WHERE group_id = ?
+			ORDER BY user_name, exercise_type, table_number
+		`, groupID)
+	} else {
+		rows, err = db.Query(`
+			SELECT user_name, exercise_type, table_number, consecutive_perfect, badge_earned, COALESCE(earned_at, '')
+			FROM specialist_badges
+			ORDER BY user_name, exercise_type, table_number
+		`)
+	}
 	if err != nil {
 		slog.Error("Failed to query specialist badges", "error", err)
 		http.Error(w, "database error", http.StatusInternalServerError)
@@ -657,6 +924,7 @@ type userErrorRequest struct {
 	Name         string `json:"name"`
 	ExerciseType string `json:"exercise_type"`
 	Question     string `json:"question"`
+	GroupID      *int64 `json:"group_id,omitempty"`
 }
 
 func postUserError(w http.ResponseWriter, r *http.Request) {
@@ -685,20 +953,25 @@ func postUserError(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Upsert: insert or increment error_count
+	// Note: group_id is stored for reference but not part of the unique constraint
 	_, err := db.Exec(`
-		INSERT INTO user_errors (user_name, exercise_type, question, error_count, last_error_date)
-		VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP)
+		INSERT INTO user_errors (user_name, exercise_type, question, error_count, last_error_date, group_id)
+		VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, ?)
 		ON CONFLICT(user_name, exercise_type, question)
 		DO UPDATE SET
 			error_count = error_count + 1,
-			last_error_date = CURRENT_TIMESTAMP
-	`, name, req.ExerciseType, req.Question)
+			last_error_date = CURRENT_TIMESTAMP,
+			group_id = COALESCE(excluded.group_id, group_id)
+	`, name, req.ExerciseType, req.Question, req.GroupID)
 
 	if err != nil {
 		slog.Error("Failed to record user error", "error", err)
 		http.Error(w, "database error", http.StatusInternalServerError)
 		return
 	}
+
+	// Increment Prometheus metric
+	userErrorsTotal.Inc()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -707,7 +980,7 @@ func postUserError(w http.ResponseWriter, r *http.Request) {
 
 // updateSpecialistBadgeProgress checks if a user qualifies for specialist badge progress
 // Requirements: single table selected, perfect score (10/10), track 3 consecutive perfects
-func updateSpecialistBadgeProgress(userName, exerciseType string, tables []int, score, total int) {
+func updateSpecialistBadgeProgress(userName, exerciseType string, tables []int, score, total int, groupID *int64) {
 	// Only track if exactly one table is selected
 	if len(tables) != 1 {
 		return
@@ -722,15 +995,16 @@ func updateSpecialistBadgeProgress(userName, exerciseType string, tables []int, 
 	if isPerfect {
 		// Increment consecutive count or insert new record
 		_, err := db.Exec(`
-			INSERT INTO specialist_badges (user_name, exercise_type, table_number, consecutive_perfect, badge_earned)
-			VALUES (?, ?, ?, 1, 0)
+			INSERT INTO specialist_badges (user_name, exercise_type, table_number, consecutive_perfect, badge_earned, group_id)
+			VALUES (?, ?, ?, 1, 0, ?)
 			ON CONFLICT(user_name, exercise_type, table_number)
 			DO UPDATE SET consecutive_perfect =
 				CASE
 					WHEN badge_earned = 1 THEN consecutive_perfect
 					ELSE consecutive_perfect + 1
-				END
-		`, userName, exerciseType, tableNumber)
+				END,
+				group_id = COALESCE(excluded.group_id, group_id)
+		`, userName, exerciseType, tableNumber, groupID)
 		if err != nil {
 			slog.Error("Failed to update specialist badge progress", "error", err)
 			return
@@ -776,6 +1050,106 @@ func updateSpecialistBadgeProgress(userName, exerciseType string, tables []int, 
 	}
 }
 
+// Group types and handlers
+type Group struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	SecretKey string `json:"secret_key"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+type createGroupRequest struct {
+	Name string `json:"name"`
+}
+
+// POST /api/groups - Create a new group
+func createGroup(w http.ResponseWriter, r *http.Request) {
+	var req createGroupRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+
+	secretKey, err := generateSecretKey()
+	if err != nil {
+		slog.Error("Failed to generate secret key", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	result, err := db.Exec(`INSERT INTO groups (name, secret_key) VALUES (?, ?)`, name, secretKey)
+	if err != nil {
+		slog.Error("Failed to create group", "error", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		slog.Error("Failed to get group ID", "error", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	group := Group{
+		ID:        id,
+		Name:      name,
+		SecretKey: secretKey,
+	}
+
+	slog.Info("Group created", "id", id, "name", name)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(group)
+}
+
+// GET /api/groups?secret_key=X - Get group info by secret key
+func getGroup(w http.ResponseWriter, r *http.Request) {
+	secretKey := strings.TrimSpace(r.URL.Query().Get("secret_key"))
+	if secretKey == "" {
+		http.Error(w, "secret_key required", http.StatusBadRequest)
+		return
+	}
+
+	var group Group
+	err := db.QueryRow(`
+		SELECT id, name, secret_key, created_at
+		FROM groups
+		WHERE secret_key = ?
+	`, secretKey).Scan(&group.ID, &group.Name, &group.SecretKey, &group.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		http.Error(w, "group not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		slog.Error("Failed to get group", "error", err)
+		http.Error(w, "database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(group)
+}
+
+// handleGroups routes to createGroup or getGroup based on HTTP method
+func handleGroups(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		createGroup(w, r)
+	case http.MethodGet:
+		getGroup(w, r)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 // Result handling for posting to Google Sheets via backend
 // Request payload from frontend
 type resultRequest struct {
@@ -785,6 +1159,7 @@ type resultRequest struct {
 	Tables          []int   `json:"tables,omitempty"`
 	ExerciseType    string  `json:"exercise_type,omitempty"`
 	MeanTimeSeconds float64 `json:"mean_time_seconds,omitempty"`
+	GroupID         *int64  `json:"group_id,omitempty"`
 }
 
 // Payload forwarded to Google Apps Script (you can adapt to your script needs)
@@ -828,16 +1203,19 @@ func postResult(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err := db.Exec(`
-		INSERT INTO user_results (user_name, exercise_type, score, total, tables, mean_time_seconds)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, name, exerciseType, req.Score, req.Total, tablesJSON, req.MeanTimeSeconds)
+		INSERT INTO user_results (user_name, exercise_type, score, total, tables, mean_time_seconds, group_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, name, exerciseType, req.Score, req.Total, tablesJSON, req.MeanTimeSeconds, req.GroupID)
 	if err != nil {
 		slog.Error("Failed to save result to database", "error", err)
 		// Continue anyway to not block the user
 	}
 
+	// Increment Prometheus metric
+	quizResultsTotal.WithLabelValues(exerciseType).Inc()
+
 	// Check for specialist badge progress (single table, 10/10 three times in a row)
-	updateSpecialistBadgeProgress(name, exerciseType, req.Tables, req.Score, req.Total)
+	updateSpecialistBadgeProgress(name, exerciseType, req.Tables, req.Score, req.Total, req.GroupID)
 
 	webhook := os.Getenv("SHEETS_WEBHOOK_URL")
 	if webhook == "" {
@@ -891,7 +1269,7 @@ func loadConfig(configPath string) error {
 	config = Config{
 		HTTPConfig: HTTPConfig{
 			Port:        "8080",
-			MetricsPort: "9090",
+			MetricsPort: "9101",
 		},
 		DBConfig: DBConfig{
 			DBPath: "./flashcards.db",
@@ -949,15 +1327,26 @@ func main() {
 		http.NotFound(w, r)
 	})
 
-	http.HandleFunc("/api/flashcards", getFlashcards)
-	http.HandleFunc("/api/user-errors", getUserErrors)
-	http.HandleFunc("/api/user-best", getUserBestScore)
-	http.HandleFunc("/api/user-error", postUserError)
-	http.HandleFunc("/api/result", postResult)
-	http.HandleFunc("/api/scores", getAllScores)
-	http.HandleFunc("/api/attempts", getAllAttempts)
-	http.HandleFunc("/api/badges", getBadges)
-	http.HandleFunc("/api/specialist-badges", getSpecialistBadges)
+	http.HandleFunc("/api/flashcards", instrumentHandler("/api/flashcards", getFlashcards))
+	http.HandleFunc("/api/user-errors", instrumentHandler("/api/user-errors", getUserErrors))
+	http.HandleFunc("/api/user-best", instrumentHandler("/api/user-best", getUserBestScore))
+	http.HandleFunc("/api/user-error", instrumentHandler("/api/user-error", postUserError))
+	http.HandleFunc("/api/result", instrumentHandler("/api/result", postResult))
+	http.HandleFunc("/api/scores", instrumentHandler("/api/scores", getAllScores))
+	http.HandleFunc("/api/attempts", instrumentHandler("/api/attempts", getAllAttempts))
+	http.HandleFunc("/api/badges", instrumentHandler("/api/badges", getBadges))
+	http.HandleFunc("/api/specialist-badges", instrumentHandler("/api/specialist-badges", getSpecialistBadges))
+	http.HandleFunc("/api/groups", instrumentHandler("/api/groups", handleGroups))
+
+	// Start Prometheus metrics server on separate port
+	go func() {
+		metricsMux := http.NewServeMux()
+		metricsMux.Handle("/metrics", promhttp.Handler())
+		slog.Info("Metrics server starting", "port", config.HTTPConfig.MetricsPort)
+		if err := http.ListenAndServe(":"+config.HTTPConfig.MetricsPort, metricsMux); err != nil {
+			slog.Error("Metrics server failed", "error", err)
+		}
+	}()
 
 	slog.Info("Server starting", "port", config.HTTPConfig.Port)
 	if err := http.ListenAndServe(":"+config.HTTPConfig.Port, nil); err != nil {
