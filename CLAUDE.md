@@ -36,6 +36,15 @@ The server runs on port 8080. Visit http://localhost:8080 to access the app.
 **Environment Variables**
 - `SHEETS_WEBHOOK_URL` - Google Apps Script webhook URL for result tracking (optional)
 
+## Version
+
+`const Version` in `version.go` is the only place to bump it.
+`supermaths_server -version` prints it as the first token, then the commit and
+its date, which Go stamps from git. The OTA support agent reads that first token
+as the device's version, so bump it for every deployed build and commit before
+`make build` (an uncommitted tree shows as `-dirty`). The Makefile builds the
+package (`.`), not `main.go`: Go only stamps the commit for a package build.
+
 ## Code Conventions
 
 - French language used in UI strings and some code comments

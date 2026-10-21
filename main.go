@@ -1297,7 +1297,16 @@ func loadConfig(configPath string) error {
 func main() {
 	// Parse command line flags
 	configPath := flag.String("config", "config.toml", "Path to configuration file")
+	showVersion := flag.Bool("version", false,
+		"Print the version and exit. The first token is the bare version; the OTA support agent reads it")
 	flag.Parse()
+
+	// Checked before the config and the database: the OTA support agent runs
+	// -version from any directory.
+	if *showVersion {
+		fmt.Println(versionString())
+		return
+	}
 
 	// Load configuration
 	if err := loadConfig(*configPath); err != nil {
