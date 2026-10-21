@@ -11,7 +11,6 @@ A flashcard PWA for practicing multiplication, addition, and subtraction tables.
 ```bash
 make build       # Run tests and build binary to bin/vic_multi
 make air         # Run dev server with hot reload (requires air installed)
-make push_to_clever  # Deploy to Clever Cloud
 ```
 
 The server runs on port 8080. Visit http://localhost:8080 to access the app.

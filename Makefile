@@ -9,8 +9,5 @@ build:
 	GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bin/vic_multi_linux .
 	cp bin/vic_multi /Users/mathieuchauvet/adaztech/code/infra/ansible/roles/mathieuchauvet.supermaths/files/supermaths_server_darwin
 
-push_to_clever:
-	git push clever main:master --force
-
 air:
 	air
